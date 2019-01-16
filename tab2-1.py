@@ -58,8 +58,7 @@ app.layout = html.Div(id='page',children=[
         html.Div(id='bottom',className='row',style= {'backgroundColor':'#FFFFFF'},children=[
 
             html.Div(className='six columns',children=[
-                html.H5('Fit Table '),
-                html.H5(' . '),
+                html.H5(id = 'last-update'),
                 html.Div(dash_table.DataTable(id='fit-table',
                             columns =[{'id': c,'name':c} for c in ['Expiry','Sigma','Skew','Kurt','Alpha','Ref','vol_q','price_q','VolSpread']],
                             style_header= {'backgroundColor':'lightgrey','fontWeight':'bold'},
@@ -67,9 +66,7 @@ app.layout = html.Div(id='page',children=[
                             style_table = {'vertical-align':'middle','horizontal-align':'middle'}
                             )
                 ),
-                html.H5(' . '),
-                html.H5('Last update:'),
-                html.H6(id='last-update')
+                html.Pre(id='click-data')#,style={'overflowX':'scroll'})
             ]),
 
             html.Div(id='TS-charts',className='six columns',children=[
@@ -80,7 +77,7 @@ app.layout = html.Div(id='page',children=[
         html.Div(id='the-data',style={'display':'none'}),
         dcc.Interval(
             id='interval-component',
-            interval=60*1000, # in milliseconds= 1 minutes
+            interval=90*1000, # in milliseconds= 1.5  minutes
             n_intervals=0
             )      
     ])
@@ -88,8 +85,8 @@ app.layout = html.Div(id='page',children=[
 
 def generate_table(data,exp,max_rows=25):
     data= [pd.read_json(json_data,orient='split') for json_data in json.loads(data)]
-    fitparams=data[-1]
-    optmats=data[:-1]
+    fitparams=data[-2]
+    optmats=data[:-2]
     mat=fitparams.index.get_loc(exp)
     df=optmats[mat].reset_index().tail(max_rows).round(2)
     df=df[['Strike','Ins','uPx','Bid$','Ask$','TV','MidVol','Fit','Vega']]
@@ -107,8 +104,8 @@ def generate_table(data,exp,max_rows=25):
 
 def skewplot(data,exp):
     data= [pd.read_json(json_data,orient='split') for json_data in json.loads(data)]
-    fitparams=data[-1].round(4)
-    optmats=data[:-1]
+    fitparams=data[-2].round(4)
+    optmats=data[:-2]
     mat=fitparams.index.get_loc(exp)
     optchart = optmats[mat].copy()
     title = str(fitparams.iloc[mat])
@@ -134,59 +131,62 @@ def skewplot(data,exp):
 @app.callback(Output('the-data','children'),
             [Input('interval-component','n_intervals')])
 def update_data(n):
+    print('updating',dt.datetime.now())
     data =  get_data()
-    return json.dumps([df.to_json(date_format='iso',orient='split') for df in data])
+    results = json.dumps([df.to_json(date_format='iso',orient='split') for df in data])
+    print('finished updating', dt.datetime.now())
+    return results
 
 @app.callback(Output('last-update','children'),[Input('interval-component','n_intervals')])
 def last_update(n):
-    return '          {}'.format(dt.datetime.now().strftime("%Y-%m-%d  %H:%M"))
+    return  'Last update:' + 20* ' '  +  '{}'.format(dt.datetime.now().strftime("%Y-%m-%d  %H:%M"))
 
 @app.callback(Output('dd1','options'),
             [Input('the-data','children')])
 def dd1_options(dfs):
-    fitparams = pd.read_json(json.loads(dfs)[-1],orient='split')
+    fitparams = pd.read_json(json.loads(dfs)[-2],orient='split')
     return  [{'label':expiry,'value':expiry} for expiry in fitparams.index]
     
 @app.callback(Output('dd1','value'),
             [Input('the-data','children')])
 def dd1_value(dfs):
-    fitparams = pd.read_json(json.loads(dfs)[-1],orient='split')
+    fitparams = pd.read_json(json.loads(dfs)[-2],orient='split')
     return fitparams.index[-4]
 
 @app.callback(Output('dd2','options'),
             [Input('the-data','children')])
 def dd2_options(dfs):
-    fitparams = pd.read_json(json.loads(dfs)[-1],orient='split')
+    fitparams = pd.read_json(json.loads(dfs)[-2],orient='split')
     return  [{'label':expiry,'value':expiry} for expiry in fitparams.index]
     
 @app.callback(Output('dd2','value'),
             [Input('the-data','children')])
 def dd2_value(dfs):
-    fitparams = pd.read_json(json.loads(dfs)[-1],orient='split')
+    fitparams = pd.read_json(json.loads(dfs)[-2],orient='split')
     return fitparams.index[-3]
 
 @app.callback(Output('dd3','options'),
             [Input('the-data','children')])
 def dd3_options(dfs):
-    fitparams = pd.read_json(json.loads(dfs)[-1],orient='split')
+    fitparams = pd.read_json(json.loads(dfs)[-2],orient='split')
     return  [{'label':expiry,'value':expiry} for expiry in fitparams.index]
     
 @app.callback(Output('dd3','value'),
             [Input('the-data','children')])
 def dd3_value(dfs):
-    fitparams = pd.read_json(json.loads(dfs)[-1],orient='split')
+    fitparams = pd.read_json(json.loads(dfs)[-2],orient='split')
     return fitparams.index[-2]
 
 @app.callback(Output('dd4','options'),
             [Input('the-data','children')])
 def dd4_options(dfs):
-    fitparams = pd.read_json(json.loads(dfs)[-1],orient='split')
+    fitparams = pd.read_json(json.loads(dfs)[-2],orient='split')
     return  [{'label':expiry,'value':expiry} for expiry in fitparams.index]
     
 @app.callback(Output('dd4','value'),
             [Input('the-data','children')])
 def dd4_value(dfs):
-    fitparams = pd.read_json(json.loads(dfs)[-1],orient='split')
+    fitparams = pd.read_json(json.loads(dfs)[-2],orient='split')
     return fitparams.index[-1]
 
 @app.callback(
@@ -230,7 +230,7 @@ def show4(data,display,exp):
     [Input('the-data','children')])
 def ts_table(data):
     data= [pd.read_json(json_data,orient='split') for json_data in json.loads(data)]
-    fitparams=data[-1].round(4)
+    fitparams=data[-2].round(4)
     return fitparams.reset_index().rename(columns={'index':'Expiry'}).to_dict('rows')           
 
 @app.callback(
@@ -238,7 +238,7 @@ def ts_table(data):
     [Input('the-data','children'),Input('fit-table','active_cell')])
 def TS(data,choice):
     data= [pd.read_json(json_data,orient='split') for json_data in json.loads(data)]
-    fitparams=data[-1]
+    fitparams=data[-2]
     palette=dict(zip(fitparams.columns,['#50AEEC','#FF6347','#228B22','#DAA520','#708090','#C0C0C0','#F4A460','#D2691E']))
     choice=fitparams.columns[choice[-1]-1]
     return go.Figure(data= [go.Scatter(x=fitparams.index,y=fitparams[choice],

@@ -7,23 +7,23 @@ from deribit_api import RestClient
 def get_data():
     '''Get and process and fit Deribit market data'''
 
-    client =RestClient("4v58Wk2hhiG9B", "2PPVLRQXD52RFPLOP55BGDE3D3WLRU3I")
-    alld=pd.DataFrame(client.getinstruments())
-    pullderibit=pd.DataFrame(client.getsummary('all'))
-    allderibit=alld.merge(pullderibit,on='instrumentName')
-    columns=['instrumentName','baseCurrency','optionType','expiration','strike','uPx','uIx','iR','bidPrice','askPrice','midPrice','openInterest','volume']
-    newcolumns=['Name','Und','Ins','Expiry','Strike','uPx','uIx','iR','Bid','Ask','Mid','OI','Volume']
-    prices=allderibit[columns]
-    prices.columns=newcolumns
-    prices=prices.sort_values(['Expiry','Strike','Ins']).reset_index(drop=True)[:-1]
-    now=pd.datetime.now().strftime('%Y-%m-%d %H:%M')
-    prices['T']=prices.apply(lambda x: round((pd.to_datetime(x['Expiry'])-pd.to_datetime('now')).total_seconds()/(365*24*60*60),4) ,axis=1)
+    client = RestClient("4v58Wk2hhiG9B", "2PPVLRQXD52RFPLOP55BGDE3D3WLRU3I")
+    alld = pd.DataFrame(client.getinstruments())
+    pullderibit = pd.DataFrame(client.getsummary('all'))
+    allderibit = alld.merge(pullderibit,on='instrumentName')
+    columns = ['instrumentName','baseCurrency','optionType','expiration','strike','uPx','uIx','iR','bidPrice','askPrice','midPrice','openInterest','volume']
+    newcolumns = ['Name','Und','Ins','Expiry','Strike','uPx','uIx','iR','Bid','Ask','Mid','OI','Volume']
+    prices = allderibit[columns]
+    prices.columns = newcolumns
+    prices = prices.sort_values(['Expiry','Strike','Ins']).reset_index(drop=True)[:-1]
+    now = pd.datetime.now().strftime('%Y-%m-%d %H:%M')
+    prices['T'] = prices.apply(lambda x: round((pd.to_datetime(x['Expiry'])-pd.to_datetime('now')).total_seconds()/(365*24*60*60),4) ,axis=1)
     prices['Volume'].replace('',0,inplace=True)
     prices.replace('',np.nan,inplace=True)
-    prices['Ins']=prices['Ins'].apply(lambda x : 'C' if x =='call' else ('P' if x =='put' else 'F'))
-    prices['OTM']=prices.apply(lambda x :otm(x['uPx'],x['Strike'],x['Ins'],.001),axis=1)
+    prices['Ins'] = prices['Ins'].apply(lambda x : 'C' if x =='call' else ('P' if x =='put' else 'F'))
+    prices['OTM'] = prices.apply(lambda x :otm(x['uPx'],x['Strike'],x['Ins'],.001),axis=1)
 
-    sheets=prices.copy()
+    sheets = prices.copy()
 
     futures = sheets[sheets['Ins']=='F'].drop(['Strike','uIx','uPx','iR','OTM'],axis=1)
     futures.reset_index(drop=True,inplace=True)
@@ -77,5 +77,5 @@ def get_data():
     fitparams['vol_q'] = volfitquality
     fitparams['price_q'] = pricefitquality
     fitparams['VolSpread'] = options.groupby('Expiry').mean()['VolSpread']
-    optmats.append(fitparams)
-    return optmats
+    data = optmats + [fitparams] + [futures]
+    return data

@@ -13,7 +13,7 @@ import pandas as pd
 import pymongo
 import os
 
-os.system('mongorestore --drop -d awsfits ..\\fits')
+os.system('mongorestore --drop -d awsfits --gzip ..\\fits')
 
 client=pymongo.MongoClient()
 db=client.awsfits
@@ -29,13 +29,23 @@ tstamps=[]
 for i in range(len(load)):
     name=load[i]['Time']
     tstamps.append(name)
-    fits.append(pd.DataFrame(json.loads(str(load[i]['Surface']))))
-    fits[i].index.name=name
-    futs.append(pd.DataFrame(json.loads(str(load[i]['Futures']))))
-    futs[i].index.name=name
-    opts.append(pd.DataFrame(json.loads(str(load[i]['Options']))))
-    opts[i].index.name=name
-    opts[i]['VolSpread']=opts[i]['AskVol']-opts[i]['BidVol']
+    fit = pd.DataFrame(json.loads(str(load[i]['Surface'])))
+    fit.reset_index(inplace=True)
+    fit['index'] = fit['index'].apply(lambda x: x.split(' ')[0])
+    fit.set_index('index',drop = True,inplace=True)
+    fit.index.name=name
+    fits.append(fit)
+    futures=pd.DataFrame(json.loads(str(load[i]['Futures'])))
+    futures['Expiry']=futures['Expiry'].apply(lambda x:x.split(' ')[0])
+    futures.index.name=name
+    futs.append(futures)
+    
+    options = pd.DataFrame(json.loads(str(load[i]['Options'])))
+    options['Expiry']=options['Expiry'].apply(lambda x:x.split(' ')[0])
+    options['VolSpread']= options['AskVol']-options['BidVol']
+    options.index.name=name
+    opts.append(options)
+    
     fits[i]['VolSpread']=opts[i].groupby('Expiry').mean()['VolSpread']
 
 
