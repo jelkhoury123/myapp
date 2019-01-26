@@ -32,7 +32,7 @@ def save_fits(sc):
     if save_fits.counter % 12 == 0 :
         #subprocess.call(["mongodump","--db","fits","--collection","vvv_fits"])
         try:
-            os.system('mongodump --db fits --collection vvv_fits --gzip')
+            os.system('mongodump --db fits --collection vvv_fits --gzip ')
             print('dumped 12 additional fits')
         except:
             print('dump failed')

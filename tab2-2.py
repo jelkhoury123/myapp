@@ -76,7 +76,7 @@ app.layout = html.Div(id='page',children=[
         html.Div(id='the-data',style={'display':'none'}),
         dcc.Interval(
             id='interval-component',
-            interval=120*1000, # in milliseconds= 2 minutes
+            interval=1200*1000, # in milliseconds= 2 minutes
             n_intervals=0
             )      
     ])
@@ -92,7 +92,7 @@ def generate_table(data,exp,max_rows=25):
     return dash_table.DataTable(
         data=df.to_dict('rows'),
         columns =[{'id': c,'name':[exp,c]}for c in df.columns],
-        n_fixed_rows =2,
+        n_fixed_rows=2,
         style_table={
             'maxHeight': '500',
             'overflowY': 'scroll'
@@ -113,10 +113,7 @@ def skewplot(data,exp):
     bid=go.Scatter(x=optchart["Strike"],y=optchart["BidVol"],mode='markers',name='Bid vol')
     ask=go.Scatter(x=optchart["Strike"],y=optchart["AskVol"],mode='markers',name = 'Ask Vol')
     mid=go.Scatter(x=optchart["Strike"],y=optchart["MidVol"],mode = 'lines',name = 'Mid Vol')
-    try:
-        fit=go.Scatter(x=optchart["Strike"],y=optchart["Fit"],mode = 'lines',name = 'Fit Vol')
-    except:
-        fit=go.Scatter(x=optchart["Strike"],y=optchart['MidVol'],name='No Fit')
+    fit=go.Scatter(x=optchart["Strike"],y=optchart["Fit"],mode = 'lines',name = 'Fit Vol')
     layout=go.Layout(title=chart_title,titlefont=dict(
                 family='Courier New, monospace',
                 size=15,

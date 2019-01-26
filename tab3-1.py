@@ -19,8 +19,8 @@ client=pymongo.MongoClient()
 db=client.awsfits
 vvv_fits=db.vvv_fits
 load =[i for i in db.vvv_fits.find()]
-print('number of fits : '+ str(len(load)))
-print('last fit : ' +load[-1]['Time'])
+#print('number of fits : '+ str(len(load)))
+#print('last fit : ' +load[-1]['Time'])
 
 fits= []
 futs= []
@@ -74,6 +74,7 @@ app.layout = html.Div(children=[
     )),
                 html.H5(' . '),
                 html.H5('Last Fit:  '+tstamps[-1]),
+                html.H5('Number of fits:     '+str(len(load)))
             ]),
             html.Div(className='six columns',id='TS-chart',children=[dcc.Graph(id='TS')])]),
     html.Div(className='row',children=[

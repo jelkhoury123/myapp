@@ -18,6 +18,7 @@ def get_data():
     prices = prices.sort_values(['Expiry','Strike','Ins']).reset_index(drop=True)[:-1]
     now = pd.datetime.now().strftime('%Y-%m-%d %H:%M')
     prices['T'] = prices.apply(lambda x: round((pd.to_datetime(x['Expiry'])-pd.to_datetime('now')).total_seconds()/(365*24*60*60),4) ,axis=1)
+    prices['Expiry'] = prices["Expiry"].apply(lambda x: x.split(' ')[0])
     prices['Volume'].replace('',0,inplace=True)
     prices.replace('',np.nan,inplace=True)
     prices['Ins'] = prices['Ins'].apply(lambda x : 'C' if x =='call' else ('P' if x =='put' else 'F'))

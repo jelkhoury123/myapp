@@ -13,7 +13,7 @@ import json
 from scipy.stats import norm
 
 
-xpto= ['BTC-USD','ETH-USD','XRP-USD']
+xpto= ['BTC-USD','ETH-USD','XRP-USD','XMR-USD','BCH-USD','EOS-USD','USDT-USD','XLM-USD']
         
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
@@ -174,7 +174,8 @@ def generate_table(json_data,pairs,max_rows =20):
             'overflowY': 'scroll'
         },
         style_header= {'backgroundColor':'lightgrey','fontWeight':'bold'},
-        style_cell = {'textAlign':'center'}
+        style_cell = {'textAlign':'center'},
+        n_fixed_rows=1
     )
 if __name__ == '__main__':
     app.run_server(debug=True,port = 8051)
