@@ -13,7 +13,7 @@ import pandas as pd
 import pymongo
 import os
 
-os.system('mongorestore --drop -d awsfits --gzip ..\\fits')
+os.system('mongorestore --drop -d awsfits --gzip fits')
 
 client=pymongo.MongoClient()
 db=client.awsfits
