@@ -7,7 +7,7 @@ from deribit_api import RestClient
 def get_data():
     '''Get and process and fit Deribit market data'''
 
-    client = RestClient("4v58Wk2hhiG9B", "2PPVLRQXD52RFPLOP55BGDE3D3WLRU3I")
+    client = RestClient()
     alld = pd.DataFrame(client.getinstruments())
     pullderibit = pd.DataFrame(client.getsummary('all'))
     allderibit = alld.merge(pullderibit,on='instrumentName')
