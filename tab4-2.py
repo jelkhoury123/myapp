@@ -16,20 +16,21 @@ import numpy as np
 import pandas as pd
 
 from deribit_api2 import get_data
+from models import BSprice, BSgreeks, BSiv, otm, vvv, vvv_fitter
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 app = dash.Dash(__name__,external_stylesheets=external_stylesheets)
 
 strategy_columns = ['Qty','Expiry','Strike','Ins'] 
-tv_columns= ['T','BidVol','Fit','AskVol','Bid$','TV','Ask$']
-greek_columns= ['Delta%','Delta$','Gamma$','Vega','Vega$']
+tv_columns= ['uPx','T','BidVol','Fit','AskVol','Bid$','TV','Ask$']
+greek_columns= ['Delta','Gamma','Theta','Vega']
 pricer_columns = strategy_columns + tv_columns + greek_columns
 
 app.title='Pricer'
 
 app.layout = html.Div(id='page',children=[
-        html.H3('Options'),
+        html.H3('Options Picker'),
         html.Div(id='top',children=[
             html.Div(children=
                     [dcc.Graph(id='disp')],
@@ -41,7 +42,7 @@ app.layout = html.Div(id='page',children=[
             interval=120*1000, # in milliseconds= 2 minutes
             n_intervals=0
             ),
-        html.Pre(id = 'click-data') ,
+        html.Pre(id = 'click-data',style = {'display':'none'}) ,
         html.Div(children=[
             dash_table.DataTable(id='select-option',
                 columns =[{'id': c,'name':c} for c in strategy_columns],
@@ -115,10 +116,8 @@ def flatplot(data):
 @app.callback(Output('the-data','children'),
             [Input('interval-component','n_intervals')])
 def update_data(n):
-    print('updating',dt.datetime.now())
     data =  get_data()
     results = json.dumps([df.to_json(date_format='iso',orient='split') for df in data])
-    print('finished updating', dt.datetime.now())
     return results
 
 @app.callback(Output('click-data','children'),
@@ -151,6 +150,7 @@ def update_selection(clickdata):
 def update_startegy(option_to_add,strategy):
     strategy.append(option_to_add[0])
     return strategy
+
 @app.callback(
     Output('pricer','data'),
     [Input('button','n_clicks')],
@@ -162,15 +162,27 @@ def update_pricer(n_clicks,strategy,pricerdata,alldata):
     st=[]
     for line in strategy:
         pricer_line=dict(Qty=line['Qty'],Expiry=line['Expiry'],Strike=line['Strike'],Ins=line['Ins'])
-        expix=list(fitparams.index).index(pd.to_datetime(line['Expiry']))
-        opts=data[expix]
+        exp_idx=list(fitparams.index).index(pd.to_datetime(line['Expiry']))
+        opts=data[exp_idx]
         my_option=opts[(opts['Strike']==line['Strike']) & (opts['Ins']==line['Ins'])]
-        print(my_option)
         for col in tv_columns:
             pricer_line[col]=round(my_option[col].iloc[0],4)
-            print(pricer_line[col])
+        for i, col in enumerate(greek_columns):
+            F = pricer_line['uPx']
+            K = pricer_line['Strike']
+            T = pricer_line['T']
+            r = 0
+            sigma = pricer_line['Fit']
+            option = pricer_line['Ins']
+            greeks = [round(i,4) for i in BSgreeks(F, K, T, r, sigma, option)]
+            greeks[-1] = round(greeks[-1]/100,4)
+            pricer_line[col]=greeks[i]       
         st.append(pricer_line)
-    st.append(dict(Qty='Total', TV = sum([line['TV'] * line['Qty'] for line in st])))
+    st.append(dict(Qty='Total', TV = round(sum([line['TV'] * line['Qty'] for line in st]),4),
+                             Delta = round(sum([line['Delta'] * line['Qty'] for line in st]),4),
+                             Gamma = round(sum([line['Gamma'] * line['Qty'] for line in st]),4),
+                             Theta = round(sum([line['Theta'] * line['Qty'] for line in st]),4),
+                             Vega = round(sum([line['Vega'] * line['Qty'] for line in st]),4)))
     pricerdata+=st
     return pricerdata
 

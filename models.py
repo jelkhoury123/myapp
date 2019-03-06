@@ -3,6 +3,9 @@
 
 import numpy as np
 import scipy.stats as si
+from scipy.interpolate import interp1d
+import quandl
+from datetime import datetime , timedelta
 
 N = si.norm.cdf
 Np = lambda x:np.exp(-x**2/2)/np.sqrt(2*np.pi)
@@ -19,8 +22,6 @@ def BSprice (F, K, T, r, sigma, option = 'C'):
 
     return price
 
-
-
 def BSgreeks(F, K, T, r, sigma, option = 'C'):
     
     d1 = (np.log(F / K) + 0.5 * sigma ** 2 * T) / (sigma * np.sqrt(T))
@@ -28,12 +29,11 @@ def BSgreeks(F, K, T, r, sigma, option = 'C'):
     if option == 'C':
         delta = N(d1)
     if option == 'P':
-        delta = N(-d1)
+        delta = -N(-d1)
     gamma = np.exp(r * T)*Np(d1)/(F*sigma*np.sqrt(T))
     vega = F * np.exp(-r * T) * Np(d1)*np.sqrt(T)
-        
-    return delta,gamma,vega
-
+    theta = (-1/2*gamma*sigma**2*(F*np.exp(-r*T))**2)/365    
+    return delta,gamma,theta,vega
 
 def BSiv(F, K, T, r, premium, option = 'C'):
     
@@ -46,7 +46,7 @@ def BSiv(F, K, T, r, premium, option = 'C'):
         price = BSprice(F,K,T,r,sigma,option)
         dist = (premium-price)
         while np.abs(dist) >= 1e-7:
-            vega = BSgreeks(F,K,T,r,sigma,option)[2]
+            vega = BSgreeks(F,K,T,r,sigma,option)[-1]
             adj = dist/vega
             sigma += adj
             price = BSprice(F,K,T,r,sigma,option)
@@ -111,5 +111,15 @@ def vvv_fitter(K,vol,vega,t,ref):
     vvv_mat = lambda K, sigma, skew, kurt, alpha : vvv(K,t,ref,sigma,skew,kurt,alpha)
     return curve_fit(vvv_mat,K,vol,sigma =1/vega,absolute_sigma=True,bounds=bounds,p0 = init_values)[0]
 
+def get_usd_curve():
+    yesterday = datetime.now() - timedelta(days=1)
+    usd_zrc=quandl.get("USTREASURY/YIELD",start_date=yesterday).iloc[-1]
+    usd_curve=usd_zrc.reset_index()
+    usd_curve['T']=usd_curve['index'].apply(lambda x: int(x.split(' ')[0])*30/365 if x.split(' ')[1]=='MO' else int(x.split(' ')[0]))
+    usd_curve.drop('index', axis=1 , inplace=True)
+    usd_curve.columns=['rate','T']
+    usd_curve['rate']/=100
+    rate_function=interp1d(usd_curve['T'],usd_curve['rate'],fill_value='extrapolate')
+    return rate_function
 
 

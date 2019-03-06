@@ -36,31 +36,32 @@ layout_block = [ html.Div(className='six columns',children=[
                  for i in range (1,5)]
 
 app.layout = html.Div(id='page',children=[
-                                        html.Div(id='top',className='row',children = layout_block[:2]),
-                                        html.Div(id='middle',className='row',children=layout_block[-2:]),
-                                        html.Div(id='bottom',className='row',style= {'backgroundColor':'#FFFFFF'},children=[
-                                                            html.Div(className='six columns',children=[
-                                                            html.H5(id = 'last-update'),
-                                                            html.Div(dash_table.DataTable(id='fit-table',
-                                                                        columns =[{'id': c,'name':c} for c in ['Expiry','Sigma','Skew','Kurt','Alpha','Ref','vol_q','price_q','VolSpread']],
-                                                                        style_header= {'backgroundColor':'lightgrey','fontWeight':'bold'},
-                                                                        style_cell = {'textAlign':'center'},
-                                                                        style_table = {'vertical-align':'middle','horizontal-align':'middle'}
-                                                                        )
-                                                            ),
-                                                            ]),
-                                                            html.Div(id='TS-charts',className='six columns',children=[
-                                                                    dcc.Graph(id='TS')
-                                                        ])
-                                                        
-                                                    ]),
-                                        html.Div(id='the-data',style={'display':'none'}),
-                                        dcc.Interval(
-                                            id='interval-component',
-                                            interval=1200*1000, # in milliseconds= 2 minutes
-                                            n_intervals=0
-                                            )      
-    ])
+                        html.Div(id='top',className='row',children = layout_block[:2]),
+                        html.Div(id='middle',className='row',children=layout_block[-2:]),
+                        html.Div(id='bottom',className='row',style= {'backgroundColor':'#FFFFFF'},children=[
+                                            html.Div(className='six columns',children=[
+                                            html.H5(id = 'last-update'),
+                                            html.Div(dash_table.DataTable(id='fit-table',
+                                                        columns =[{'id': c,'name':c} for c in ['Expiry','Sigma','Skew','Kurt','Alpha','Ref','vol_q','price_q','VolSpread']],
+                                                        style_header= {'backgroundColor':'lightgrey','fontWeight':'bold'},
+                                                        style_cell = {'textAlign':'center'},
+                                                        style_table = {'vertical-align':'middle','horizontal-align':'middle'}
+                                                        )
+                                            ),
+                                            ]),
+                                            html.Div(id='TS-charts',className='six columns',children=[
+                                                    dcc.Graph(id='TS')
+                                        ])
+                                        
+                                    ]),
+                        html.Div(id='the-data',style={'display':'none'}),
+                        dcc.Interval(
+                            id='interval-component',
+                            interval=1200*1000, # in milliseconds= 2 minutes
+                            n_intervals=0
+                            )
+                        ]
+    )
     
 def generate_table(data,exp,max_rows=25):
     data= [pd.read_json(json_data,orient='split') for json_data in json.loads(data)]

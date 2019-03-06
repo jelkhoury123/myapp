@@ -7,8 +7,6 @@ from models import vvv, vvv_fitter
 
 from deribit_api2 import get_data
 import pymongo
-#import subprocess
-
 
 s=sched.scheduler(time.time,time.sleep)
 
@@ -19,7 +17,7 @@ def save_fits(sc):
     fitparams = data[-2]
     optmats = data[:-2]
   
-    opt=pd.concat(optmats)
+    opt = pd.concat(optmats,sort=False)
     now = fitparams.columns.name
     opt.columns.name=now
 
@@ -30,7 +28,6 @@ def save_fits(sc):
     vvv_fits.insert_one({"Time":now,"Surface":fitparams.to_json(),"Options":opt.to_json(),"Futures":futures.to_json()})
     print ("One save made at:", now)
     if save_fits.counter % 12 == 0 :
-        #subprocess.call(["mongodump","--db","fits","--collection","vvv_fits"])
         try:
             os.system('mongodump --db fits --collection vvv_fits --gzip ')
             print('dumped 12 additional fits')
