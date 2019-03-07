@@ -194,6 +194,7 @@ def order_fill(order_book_df, order_sizes,in_ccy=True):
     return average_fills/mid
  
 def get_liq_params(normalized,pair):
+    #coin stats
     coinmar = ccxt.coinmarketcap()
     coindata=coinmar.load_markets()
     total_coins=float(coindata[pair]['info']['available_supply'])  #number of coins floating
@@ -201,6 +202,7 @@ def get_liq_params(normalized,pair):
     clip = total_coins/100000                                      #my standard order size 
     ordersizes=np.array([clip* i for i in order_span]+[-clip* i for i in order_span]).astype(int)
     slippage = ((order_fill(normalized,ordersizes,False)-1)*100).round(2)
+    #order book
     best_bid = normalized['bid'].max()
     best_ask = normalized['ask'].min()
     mid= (best_bid + best_ask)/2
@@ -208,9 +210,30 @@ def get_liq_params(normalized,pair):
     spread_pct = spread/mid*100
     cross = min(0,spread)
     cross_pct = min(0,spread_pct)
-    result1 = pd.DataFrame([best_bid,best_ask,mid,spread,spread_pct,cross,cross_pct],
-    index=['bid','ask','mid','spread','spread%','cross','cross%']).T
-    result2 = pd.DataFrame(slippage,index=[str(o) for o in ordersizes]).T
+    #arb
+    ordersizes_dollar=ordersizes*mid
+    arb_ask = normalized[normalized['ask'] < best_bid]
+    arb_bid = normalized[normalized['bid'] > best_ask]
+    if len(arb_bid) == 0:
+        arb_dollar = 0
+        size_arb = 0
+    else:
+        size_bid = arb_bid.iloc[-1]['cum_bid_size']
+        size_ask = arb_ask.iloc[-1]['cum_ask_size']
+        sell_first = size_bid <= size_ask
+        if sell_first:
+            size_arb = size_bid
+            arb_dollar = -order_fill(normalized,np.array([size_bid]),False)[0]*mid*size_bid + arb_bid.iloc[-1]['cum_bid_size_$']
+        else:
+            size_arb = size_ask
+            arb_dollar =-order_fill(normalized,np.array([-size_ask]),False)[0]*mid*size_ask + arb_ask.iloc[-1]['cum_ask_size_$']
+
+    result1 = pd.DataFrame([best_bid,best_ask,mid,spread,spread_pct,cross,cross_pct,arb_dollar,size_arb,100*arb_dollar/(size_arb*mid) if size_arb!=0 else 0],
+    index=['bid','ask','mid','spread','spread%','cross','cross%','arb $','size arb','arb%']).T
+    result2 = pd.DataFrame(index=[str(o) for o in ordersizes])
+    result2 [0]=(ordersizes_dollar/1e6).round(1)
+    result2[1] = slippage
+    result2=result2.T
     info = coindata[pair]['info']
     select_info=['symbol','rank','24h_volume_usd','market_cap_usd',
                 'available_supply','percent_change_1h','percent_change_24h','percent_change_7d']
@@ -266,10 +289,11 @@ app.layout = html.Div(style={'marginLeft':25,'marginRight':25},
                                                 html.Div(children = [
                                                 html.Div(className='three columns',children = [html.H6('Order Book')]),
                                                 html.Div(className='three columns',children = [html.H6('Bps Aggregation Level:')]),
-                                                html.Div(className = 'three columns', children =
+                                                html.P(className = 'three columns',children =
                                                                                         [dcc.RadioItems(id='agg-level',
-                                                                                    options=[{'label':i,'value':i/10000} for i in [0,.1,1,10,100,1000,10000]],value=10/10000,
-                                                                                    labelStyle={'display':'inline-block'})])]),
+                                                                                        options=[{'label':i,'value':i/10000} for i in [0,.1,1,10,100,1000,10000]],
+                                                                                        value=10/10000,
+                                                                                        labelStyle={'display':'inline-block'})])]),
                                                 html.Div(id='order-table'),
                                                 html.H6('Liquidity Metrics'),
                                                 html.H6('----------------------'),

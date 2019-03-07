@@ -17,7 +17,7 @@ def get_data():
     prices.columns = newcolumns
     prices = prices.sort_values(['Expiry','Strike','Ins']).reset_index(drop=True)[:-1]
     now = pd.datetime.now().strftime('%Y-%m-%d %H:%M')
-    prices['T'] = prices.apply(lambda x: round((pd.to_datetime(x['Expiry'])-pd.to_datetime('now')).total_seconds()/(365*24*60*60),4) ,axis=1)
+    prices['T'] = prices.apply(lambda x: round((pd.to_datetime(x['Expiry'])-pd.to_datetime('now',utc = True)).total_seconds()/(365*24*60*60),4) ,axis=1)
     prices['Expiry'] = prices["Expiry"].apply(lambda x: x.split(' ')[0])
     prices['Volume'].replace('',0,inplace=True)
     prices.replace('',np.nan,inplace=True)
