@@ -288,10 +288,10 @@ app.layout = html.Div(style={'marginLeft':25,'marginRight':25},
                                                 dcc.Dropdown(id='exchanges',multi=True),
                                                 html.Div(children = [
                                                 html.Div(className='three columns',children = [html.H6('Order Book')]),
-                                                html.Div(className='three columns',children = [html.H6('Bps Aggregation Level:')]),
+                                                html.Div(className='three columns',children = [html.H6('Price agg (bps):')]),
                                                 html.P(className = 'three columns',children =
                                                                                         [dcc.RadioItems(id='agg-level',
-                                                                                        options=[{'label':i,'value':i/10000} for i in [0,.1,1,10,100,1000,10000]],
+                                                                                        options=[{'label':i,'value':i/10000} for i in [0.01,.1,1,10,100,1000,10000]],
                                                                                         value=10/10000,
                                                                                         labelStyle={'display':'inline-block'})])]),
                                                 html.Div(id='order-table'),
@@ -307,7 +307,7 @@ app.layout = html.Div(style={'marginLeft':25,'marginRight':25},
                                 html.Div(id='the-data',style={'display':'none'}),
                                 dcc.Interval(
                                     id='interval-component',
-                                    interval=10*1000, # in milliseconds= 10 seconds
+                                    interval=100*1000, # in milliseconds= 10 seconds
                                     n_intervals=0
                                     ),
                                 dcc.Interval(
@@ -469,4 +469,5 @@ def update_stat_table(order_books,pair,exchanges,x_scale,y_scale,cutoff,step):
             style_as_list_view=True)
 
 if __name__ == '__main__':
+    print(ccxt.__version__)
     app.run_server(debug=True,port = 8055)
