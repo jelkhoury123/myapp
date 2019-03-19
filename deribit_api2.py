@@ -39,7 +39,7 @@ def get_data():
     options['Bid$'] = options['Bid']*options['uPx']
     options['Mid$'] = options['Mid']*options['uPx']
     options['Ask$'] = options['Ask']*options['uPx']
-    options['Vega'] = options.apply(lambda x : BSgreeks(x['uPx'], x['Strike'], x['T'], 0, x['MidVol'], option = 'C')[2]*.01,axis=1)
+    options['Vega'] = options.apply(lambda x : BSgreeks(x['uPx'], x['Strike'], x['T'], 0, x['MidVol'], option = 'C')[3]*.01,axis=1)
 
     optmats = []
     T = []
@@ -66,9 +66,11 @@ def get_data():
             mat['TV'] = mat.apply(lambda x: BSprice (ref, x['Strike'], t, x['iR'], x['Fit'], option = x['Ins']),axis=1)
             pricefitquality.append(round(np.abs(mat['TV']-mat['Mid$']).mean(),4))
         except:
-            fit=['nofit']
+            fit=[np.nan]
             fitparams.append(fit)
+            mat['Fit'] = mat['Strike'].apply(lambda x : np.nan)
             volfitquality.append(None)
+            mat['TV'] = mat.apply(lambda x:np.nan)
             pricefitquality.append(None)
             continue
             
