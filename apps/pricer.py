@@ -31,7 +31,25 @@ pricer_columns = strategy_columns + tv_columns + greek_columns
 
 title='Pricer'
 
+nav_menu = html.Div(children=[
+                    html.A('HVG', href='/apps/hvg',style={'backgroung-color':'red','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('Skew', href='/apps/skew',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('HIV', href='/apps/hiv',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('Pricer', href='/apps/pricer',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('Order Book', href='/apps/order_book',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('Futures', href='/apps/futures',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    ])
+
 layout =html.Div(id='page',children=[
+
+        html.Div(className='row',children=[nav_menu]),
+        html.Hr(),
         html.H3('Options '),
         html.Div(id='top',children=[
             html.Div(children=
@@ -80,11 +98,7 @@ layout =html.Div(id='page',children=[
                 editable=True),
 
         ]),
-            dcc.Link('hvg',href='/apps/hvg'),
-            dcc.Link('skew',href='/apps/skew'),
-            dcc.Link('hiv',href='/apps/hiv'),
-            dcc.Link('order_book',href='/app/order_book'),
-            dcc.Link('futures',href='/app/futures'), 
+           
     ])
 
 def flatplot(data):

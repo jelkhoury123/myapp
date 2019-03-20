@@ -279,15 +279,33 @@ def get_liq_params(normalized,pair,step):
     return [result1,result2,result3]
         
 title = 'Order Books'
+
+nav_menu = html.Div(children=[
+                    html.A('HVG', href='/apps/hvg',style={'backgroung-color':'red','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('Skew', href='/apps/skew',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('HIV', href='/apps/hiv',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('Pricer', href='/apps/pricer',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('Order Book', href='/apps/order_book',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('Futures', href='/apps/futures',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    ])
+
 layout = html.Div(style={'marginLeft':25,'marginRight':25},
-                    children=[ html.Div(className='row',children=[
+                    children=[ html.Div(className='row',children=[nav_menu]),
+                        html.Hr(),
+                        html.Div(className='row',children=[
                                         html.Div(className='six columns',
                                         children =[html.H6('Choose Pair'),
                                                     dcc.Dropdown(id='pairs',
                                                                 options=[{'label':pair,'value':pair} for pair in pairs],
                                                                 value='BTC/USD'),
                                                     html.H6('Book Params:'),
-                                                    html.H6('--------------'),
+                                                    html.Hr(),
                                                     html.Div(className='row',children=[
                                                     html.Div(className='three columns',children = [html.H6( 'X scale :')]),
                                                     html.Div(className='three columns',children=[dcc.RadioItems(id='x-scale',
@@ -315,9 +333,10 @@ layout = html.Div(style={'marginLeft':25,'marginRight':25},
                                                                                         value = 3,
                                                                                         step = 1)]),
                                                     ]),
-                                                    html.H6(' ... '),        
+                                                    html.Hr(),        
                                                     html.H6(' Book Charts'),
                                                     dcc.Graph(id='order-book-chart'),
+                                                    html.Hr(),
                                                     dcc.Graph(id='market-depth'),
                                                     html.H6(id='time')
 
@@ -326,16 +345,16 @@ layout = html.Div(style={'marginLeft':25,'marginRight':25},
                                     children =[html.H6('Choose Exchange'),
                                                 dcc.Dropdown(id='exchanges',multi=True),
                                                 html.H6('Order Book'),
-                                                html.H6('----------------------'),
+                                                html.Hr(),
                                                 html.Div(id='order-table'),
+                                                html.Hr(),
                                                 html.H6('Liquidity Metrics'),
-                                                html.H6('----------------------'),
                                                 html.P(id='liquidity-table'),
+                                                html.Hr(),
                                                 html.H6('Slippage %'),
-                                                html.H6('--------------'),
                                                 html.P(id='depth-table'),
+                                                html.Hr(),
                                                 html.H6('Coin Stats'),
-                                                html.H6('--------------'),
                                                 html.P(id='stat-table')]),
                                 html.Div(id='the-ob-data',style={'display':'none'}),
                                 dcc.Interval(
@@ -349,11 +368,6 @@ layout = html.Div(style={'marginLeft':25,'marginRight':25},
                                     n_intervals=0
                                 )     
                         ]),
-                        dcc.Link('hvg',href='/apps/hvg'),
-                        dcc.Link('skew',href='/apps/skew'),
-                        dcc.Link('hiv',href='/apps/hiv'),
-                        dcc.Link('pricer',href='/app/pricer'),
-                        dcc.Link('futures',href='/app/futures'),
                         ])
 
 @app.callback(Output('time','children'),

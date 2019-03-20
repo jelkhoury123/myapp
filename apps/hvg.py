@@ -25,8 +25,25 @@ title = 'Historical Volatility'
 
 pair_options = [{'label':pair,'value':pair} for pair in xpto]
 
-layout = html.Div(className='row',children=
-            [
+nav_menu = html.Div(children=[
+                    html.A('HVG', href='/apps/hvg',style={'backgroung-color':'red','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('Skew', href='/apps/skew',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('HIV', href='/apps/hiv',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('Pricer', href='/apps/pricer',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('Order Book', href='/apps/order_book',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('Futures', href='/apps/futures',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    ])
+
+
+layout = html.Div(children = [
+                html.Div(className='row',children=[nav_menu]),
+                html.Hr(),
                 html.Div(className='row',children=[
                     html.Div(className='four columns',children=
                             dcc.Dropdown(id='pairs-chosen',options = pair_options,value=[xpto[0]],style={'width':'90%','display':'inline-block'},
@@ -55,7 +72,7 @@ layout = html.Div(className='row',children=
                     dcc.Graph(id='price-chart')                       
                     ]
                 ),
-                html.Div(                   
+                html.Div(className= 'row',                  
                         children=[dcc.Graph(id='realized-vol')]                 
                 ),
                 html.Div(className='row',children=[                 
@@ -70,12 +87,7 @@ layout = html.Div(className='row',children=
                     id='hvg-interval-component',
                     interval=300*1000, # in milliseconds= 5 minutes
                     n_intervals=0
-                    ),
-                dcc.Link('skew',href='/apps/skew'),
-                dcc.Link('hiv',href='/apps/hiv'),
-                dcc.Link('pricer',href='/app/pricer'),
-                dcc.Link('order_book',href='/app/order_book'),
-                dcc.Link('futures',href='/app/futures'),         
+                    ),       
             ])
 
 @app.callback([Output('the-hvg-data','children'),Output('last-update','children')],
@@ -166,4 +178,3 @@ def update_page(json_data,pairs,start_date):
         n_fixed_rows=1
     )
     return price_figure,rvol_figure,ret_dist_fig,hist_table
-              

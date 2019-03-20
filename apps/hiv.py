@@ -59,7 +59,25 @@ title='Historical Implied Vols'
 
 ix = [(pd.to_datetime(fit.index.name,utc=True),fit['Ref'][0]) for fit in fits]
 
+nav_menu = html.Div(children=[
+                    html.A('HVG', href='/apps/hvg',style={'backgroung-color':'red','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('Skew', href='/apps/skew',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('HIV', href='/apps/hiv',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('Pricer', href='/apps/pricer',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('Order Book', href='/apps/order_book',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    html.A('Futures', href='/apps/futures',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
+                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
+                    ])
+
+
 layout = html.Div(children=[
+    html.Div(className='row',children=[nav_menu]),
+    html.Hr(),
     dcc.Graph(id = 'base',
         figure = go.Figure(
             data=[go.Scatter(x=pd.DataFrame(ix)[0],y=pd.DataFrame(ix)[1])],
@@ -82,11 +100,6 @@ layout = html.Div(children=[
             html.Div(id='skew-plot',className='six columns'),
             html.Div(id='hist-plot',className='six columns'),
             ]),
-    dcc.Link('hvg',href='/apps/hvg'),
-    dcc.Link('skew',href='/apps/skew'),
-    dcc.Link('pricer',href='/app/pricer'),
-    dcc.Link('order_book',href='/app/order_book'),
-    dcc.Link('futures',href='/app/futures'), 
 ])
 
 def skewplot(timeindex,expindex):
