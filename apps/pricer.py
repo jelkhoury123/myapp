@@ -9,7 +9,6 @@ import plotly.figure_factory as ff
 from plotly.offline import plot, iplot
 from plotly import tools
 
-
 import datetime as dt
 import json
 
@@ -31,25 +30,7 @@ pricer_columns = strategy_columns + tv_columns + greek_columns
 
 title='Pricer'
 
-nav_menu = html.Div(children=[
-                    html.A('HVG', href='/apps/hvg',style={'backgroung-color':'red','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Skew', href='/apps/skew',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('HIV', href='/apps/hiv',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Pricer', href='/apps/pricer',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Order Book', href='/apps/order_book',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Futures', href='/apps/futures',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    ])
-
-layout =html.Div(id='page',children=[
-
-        html.Div(className='row',children=[nav_menu]),
-        html.Hr(),
+layout =html.Div(style={'marginLeft':25,'marginRight':25},id='page',children=[
         html.H3('Options '),
         html.Div(id='top',children=[
             html.Div(children=
@@ -62,7 +43,7 @@ layout =html.Div(id='page',children=[
             interval=120*1000, # in milliseconds= 2 minutes
             n_intervals=0
             ),
-        html.Pre(id = 'click-data',style={'display':'none'}) ,
+        html.Pre(id = 'click-data',style={'display':'none'}),
         html.Div(children=[
             dash_table.DataTable(id='select-option',
                 columns =[{'id': c,'name':c} for c in strategy_columns],
@@ -108,11 +89,11 @@ def flatplot(data):
     optmats=data[:-2]
     chart_titles= [str(fitparams.iloc[mat]) for mat in range(len(fitparams.index))]
     subplot_titles=tuple(" - ".join([" ".join(i.split()) for i in title.split('\n')[:-4]]) for title in chart_titles)
-    fig = tools.make_subplots(rows = 3 , cols = 2,subplot_titles=subplot_titles)
-    fig['layout'].update(height=600)
+    fig = tools.make_subplots(rows = 2 , cols = 3,subplot_titles=subplot_titles)
+    fig['layout'].update(height=400)
     for mat in range(len(fitparams.index)):
-        domain_ref= .225*(4 - 2*(mat//2))
-        position=(mat//2+1,mat%2+1)
+        domain_ref= .225*(4 - 3*(mat//3))
+        position=(mat//3+1,mat%3+1)
         optchart = optmats[mat].copy()
         try:
             bid=go.Scatter(x=optchart["Strike"],y=optchart['BidVol']-optchart["Fit"],
@@ -127,7 +108,9 @@ def flatplot(data):
         fig.append_trace(bid,*position)
         fig.append_trace(ask,*position)
         fig['layout']['xaxis{}'.format('' if mat ==0 else mat+1)].update(title='<b>' + str(fitparams.index[mat]).split(' ')[0]+'</b>')
+        fig['layout']['xaxis{}'.format('' if mat ==0 else mat+1)].update(showgrid=False)
         fig['layout']['yaxis{}'.format('' if mat ==0 else mat+1)].update(showticklabels=False,domain=[domain_ref,domain_ref+0.1])
+        fig['layout']['yaxis{}'.format('' if mat ==0 else mat+1)].update(showgrid=False)
         fig['layout'].update(showlegend=False)
         fig['layout'].update(clickmode='event+select')
 
@@ -141,27 +124,20 @@ def update_data(n):
     results = json.dumps([df.to_json(date_format='iso',orient='split') for df in data])
     return results
 
-@app.callback(Output('click-data','children'),
+@app.callback([Output('click-data','children'),Output('select-option','data')],
 [Input('disp','clickData')])
 def clickdata(clickdata):
-    return json.dumps(clickdata)
-
+    line_to_add=dict(Qty = -1 if clickdata['points'][0]['curveNumber']%2 == 0 else 1,
+    Expiry = clickdata['points'][0]['text'],
+    Strike = clickdata['points'][0]['x'],
+    Ins = clickdata['points'][0]['customdata'],)
+    return json.dumps(clickdata), [line_to_add]
+    
 @app.callback(
     Output ('disp','figure'),
     [Input('the-data','children')])
 def plotax(data):
     return flatplot(data)
-
-@app.callback(
-    Output('select-option','data'),
-    [Input('disp','clickData')])
-def update_selection(clickdata):
-    line_to_add=dict(Qty = -1 if clickdata['points'][0]['curveNumber']%2 == 0 else 1,
-    Expiry = clickdata['points'][0]['text'], 
-    Strike = clickdata['points'][0]['x'],
-    Ins = clickdata['points'][0]['customdata'],
-    )
-    return [line_to_add]
 
 @app.callback(
     Output('strategy','data'),
@@ -181,28 +157,35 @@ def update_pricer(n_clicks,strategy,pricerdata,alldata):
     data= [pd.read_json(json_data,orient='split') for json_data in json.loads(alldata)]
     fitparams = data[-2].round(4)
     st=[]
-    for line in strategy:
-        pricer_line=dict(Qty=line['Qty'],Expiry=line['Expiry'],Strike=line['Strike'],Ins=line['Ins'])
-        exp_idx=list(fitparams.index).index(pd.to_datetime(line['Expiry']))
-        opts=data[exp_idx]
-        my_option=opts[(opts['Strike']==line['Strike']) & (opts['Ins']==line['Ins'])]
-        for col in tv_columns:
-            pricer_line[col]=round(my_option[col].iloc[0],4)
-        for i, col in enumerate(greek_columns):
-            F = pricer_line['uPx']
-            K = pricer_line['Strike']
-            T = pricer_line['T']
-            r = 0
-            sigma = pricer_line['Fit']
-            option = pricer_line['Ins']
-            greeks = [round(i,4) for i in BSgreeks(F, K, T, r, sigma, option)]
-            greeks[-1] = round(greeks[-1]/100,4)
-            pricer_line[col]=greeks[i]       
-        st.append(pricer_line)
-    st.append(dict(Qty='Total', TV = round(sum([line['TV'] * line['Qty'] for line in st]),4),
-                             Delta = round(sum([line['Delta'] * line['Qty'] for line in st]),4),
-                             Gamma = round(sum([line['Gamma'] * line['Qty'] for line in st]),4),
-                             Theta = round(sum([line['Theta'] * line['Qty'] for line in st]),4),
-                             Vega = round(sum([line['Vega'] * line['Qty'] for line in st]),4)))
-    pricerdata+=st
+    if len(strategy) == 0:
+        pass
+    else:
+        for line in strategy:
+            Qty=int(line['Qty'])
+            Expiry=line['Expiry']
+            Strike=int(line['Strike'])
+            Ins=line['Ins']
+            pricer_line=dict(Qty=Qty,Expiry=Expiry,Strike=Strike,Ins=Ins)
+            exp_idx=list(fitparams.index).index(pd.to_datetime(line['Expiry']))
+            opts = data[exp_idx]
+            my_option = opts[(opts['Strike']== Strike) & (opts['Ins']==Ins)]
+            for col in tv_columns:
+                pricer_line[col]=round(my_option[col].iloc[0],4)
+            for i, col in enumerate(greek_columns):
+                F = pricer_line['uPx']
+                K = pricer_line['Strike']
+                T = pricer_line['T']
+                r = 0
+                sigma = pricer_line['Fit']
+                option = pricer_line['Ins']
+                greeks = [round(i,4) for i in BSgreeks(F, K, T, r, sigma, option)]
+                greeks[-1] = round(greeks[-1]/100,4)
+                pricer_line[col]=greeks[i]       
+            st.append(pricer_line)
+        st.append(dict(Qty='Total', TV = round(sum([line['TV'] * line['Qty'] for line in st]),4),
+                                    Delta = round(sum([line['Delta'] * line['Qty'] for line in st]),4),
+                                    Gamma = round(sum([line['Gamma'] * line['Qty'] for line in st]),4),
+                                    Theta = round(sum([line['Theta'] * line['Qty'] for line in st]),4),
+                                    Vega = round(sum([line['Vega'] * line['Qty'] for line in st]),4)))
+        pricerdata+=st
     return pricerdata

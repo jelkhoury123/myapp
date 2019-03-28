@@ -41,28 +41,11 @@ layout_block = [ html.Div(className='six columns',children=[
                                             value='Graph',
                                             labelStyle={'display':'inline-block'})
                     ),
-                    html.Div(dcc.Dropdown(id='skew-dd{}'.format(i))),
+                    html.Div(dcc.Dropdown(id='skew-dd{}'.format(i),style={'border-color':'#cb1828'})),
                     html.Div(id='skew-disp{}'.format(i))])
                  for i in range (1,5)]
 
-nav_menu = html.Div(children=[
-                    html.A('HVG', href='/apps/hvg',style={'backgroung-color':'red','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Skew', href='/apps/skew',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('HIV', href='/apps/hiv',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Pricer', href='/apps/pricer',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Order Book', href='/apps/order_book',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Futures', href='/apps/futures',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    ])
-
-layout = html.Div(id='skew-page',children=[
-                        html.Div(className='row',children=[nav_menu]),
-                        html.Hr(),
+layout = html.Div(id='skew-page',style={'marginLeft':25,'marginRight':25},children=[
                         html.Div(id='top',className='row',children = layout_block[:2]),
                         html.Div(id='middle',className='row',children=layout_block[-2:]),
                         html.Div(id='bottom',className='row',children=[

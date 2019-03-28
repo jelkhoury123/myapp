@@ -11,7 +11,6 @@ import pandas as pd
 import plotly.graph_objs as go
 import numpy as np
 import itertools
-import ccxt
 import json
 import datetime as dt 
 
@@ -23,22 +22,26 @@ from app import app
 ENABLE_WEBSOCKET_SUPPORT = False
 refresh_rate = 7 if ENABLE_WEBSOCKET_SUPPORT else 10
 if ENABLE_WEBSOCKET_SUPPORT:
-    import ccxt.websocket_support 
-    ccxt.bitstamp = ccxt.websocket_support.bitstamp
-    ccxt.bitmex = ccxt.websocket_support.bitmex
-    ccxt.coinbasepro = ccxt.websocket_support.coinbasepro
-    ccxt.kraken = ccxt.websocket_support.kraken
+    import diginex.ccxt.websocket_support as ccxt
+else:
+    import ccxt
     
 # Define my world
 spot_exchanges = ['bitfinex','bitstamp','coinbasepro','kraken','liquid','gemini','binance',
-                    'bitbank','huobipro','poloniex','bithumb','bittrex','kucoin2']
+                    'bitbank','huobipro','bithumb','bittrex','kucoin2']
 #deriv_exchanges =['deribit','bitmex']
 
 exchanges = spot_exchanges #+ deriv_exchanges
 
 exch_dict={}
 for x in exchanges:
-    exec('exch_dict[x]=ccxt.{}()'.format(x))
+    if x == "binance":
+        exch_dict[x] = ccxt.binance({
+            "apiKey": "NBVxbseHg7qnbwJxCsye6ywL4Ut9IwdBL3sSknsYXu4MMDzGzcMTcUrzQ0HY89r7",
+            "secret": "IvYRol5M6J9wsVNCibUSPoaLlJyP70KATDhuelmWh3w9yJxyDx5RD2SvbMTw3Ibb",
+        })
+    else:
+        exec('exch_dict[x]=ccxt.{}()'.format(x))
 
 Xpto= ['BTC','ETH','XRP','LTC','EOS','XMR','BCH','USDT','USDC','TRX','XLM','BSV','XBT','CSP','DAI']
 Fiat=['USD','EUR','GBP','CHF','HKD','JPY','CNH','KRW']
@@ -156,14 +159,14 @@ def plot_book(order_books,pair, exc, relative=True, currency=True, cutoff=.1):
         col_to_chart = ''
     if relative:
         trace_asks=go.Scatter(x=order_book.index,y=order_book['cum_ask_size'+col_to_chart],
-                        name='asks',marker=dict(color='rgba(255,0,0,0.6)'),fill='tozeroy',fillcolor='rgba(255,0,0,0.2)')
+                        name='asks',marker=dict(color='rgba(203,24,40,0.6)'),fill='tozeroy',fillcolor='rgba(203,24,40,0.2)')
         trace_bids=go.Scatter(x=order_book.index,y=order_book['cum_bid_size'+col_to_chart],
                         name='bids',marker=dict(color='rgba(0,0,255,0.6)'),fill='tozeroy',fillcolor='rgba(0,0,255,0.2)')     
     else:
         trace_asks=go.Scatter(x=order_book['ask'].fillna(0)+order_book['bid'].fillna(0),y=order_book['cum_ask_size'+col_to_chart],
-                        name='asks',marker=dict(color='rgba(255,0,0,0.6)'),fill='tozeroy',fillcolor='rgba(255,0,0,0.15)')
+                        name='asks',marker=dict(color='rgba(203,24,40,0.6)'),fill='tozeroy',fillcolor='rgba(203,24,40,0.2)')
         trace_bids=go.Scatter(x=order_book['ask'].fillna(0)+order_book['bid'].fillna(0),y=order_book['cum_bid_size'+col_to_chart],
-                        name='bids',marker=dict(color='rgba(0,0,255,0.6)'),fill='tozeroy',fillcolor='rgba(0,0,255,0.15)')
+                        name='bids',marker=dict(color='rgba(0,0,255,0.6)'),fill='tozeroy',fillcolor='rgba(0,0,255,0.2)')
         
     layout = go.Layout(title = ' - '.join(exc), xaxis = dict(title= pair +'  ' + str(best_bid)+' - '+ str(best_ask)))
     data=[trace_asks,trace_bids]
@@ -178,9 +181,9 @@ def plot_depth(order_books,pair, exc, relative=True, currency=True, cutoff=.1):
     order_book = build_book(order_books,pair,exc,cutoff)
     mid = (order_book['bid'].max()+order_book['ask'].min())/2 if relative else 1
     trace_asks = go.Scatter(x=order_book['cum_ask_size'+col_to_chart],y=order_book['average_ask_fill']/mid,
-                        name='ask depth',marker=dict(color='rgba(255,0,0,0.6)'),fill='tozerox',fillcolor='rgba(255,0,0,0.15)')
+                        name='ask depth',marker=dict(color='rgba(203,24,40,0.6)'),fill='tozerox',fillcolor='rgba(203,24,40,0.2)')
     trace_bids = go.Scatter(x=-order_book['cum_bid_size'+col_to_chart],y=order_book['average_bid_fill']/mid,
-                        name='bid depth',marker=dict(color='rgba(0,0,255,0.6)'),fill='tozerox',fillcolor='rgba(0,0,255,0.15)')
+                        name='bid depth',marker=dict(color='rgba(0,0,255,0.6)'),fill='tozerox',fillcolor='rgba(0,0,255,0.2)')
     data = [trace_asks,trace_bids]
     figure = go.Figure(data=data, layout={'title': 'Market Depth'})
     return figure
@@ -280,32 +283,17 @@ def get_liq_params(normalized,pair,step):
         
 title = 'Order Books'
 
-nav_menu = html.Div(children=[
-                    html.A('HVG', href='/apps/hvg',style={'backgroung-color':'red','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Skew', href='/apps/skew',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('HIV', href='/apps/hiv',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Pricer', href='/apps/pricer',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Order Book', href='/apps/order_book',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Futures', href='/apps/futures',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    ])
 
 layout = html.Div(style={'marginLeft':25,'marginRight':25},
-                    children=[ html.Div(className='row',children=[nav_menu]),
-                        html.Hr(),
+                    children=[ 
                         html.Div(className='row',children=[
                                         html.Div(className='six columns',
                                         children =[html.H6('Choose Pair'),
                                                     dcc.Dropdown(id='pairs',
                                                                 options=[{'label':pair,'value':pair} for pair in pairs],
-                                                                value='BTC/USD'),
+                                                                value='BTC/USD',style={'border-color':'#cb1828'}),
                                                     html.H6('Book Params:'),
-                                                    html.Hr(),
+                                                    html.Hr(style={'border-color':'#cb1828'}),
                                                     html.Div(className='row',children=[
                                                     html.Div(className='three columns',children = [html.H6( 'X scale :')]),
                                                     html.Div(className='three columns',children=[dcc.RadioItems(id='x-scale',
@@ -333,27 +321,26 @@ layout = html.Div(style={'marginLeft':25,'marginRight':25},
                                                                                         value = 3,
                                                                                         step = 1)]),
                                                     ]),
-                                                    html.Hr(),        
+                                                    html.Hr(style={'border-color':'#cb1828'}),        
                                                     html.H6(' Book Charts'),
                                                     dcc.Graph(id='order-book-chart'),
-                                                    html.Hr(),
+                                                    html.Hr(style={'border-color':'#cb1828'}),
                                                     dcc.Graph(id='market-depth'),
                                                     html.H6(id='time')
 
                                         ]),
                                 html.Div(className='six columns',
                                     children =[html.H6('Choose Exchange'),
-                                                dcc.Dropdown(id='exchanges',multi=True),
+                                                dcc.Dropdown(id='exchanges',multi=True,style={'border-color':'#cb1828'},
+                                                value = list(get_exchanges_for_pair('BTC/USD').keys())),
                                                 html.H6('Order Book'),
-                                                html.Hr(),
+                                                html.Hr(style={'border-color':'#cb1828'}),
                                                 html.Div(id='order-table'),
-                                                html.Hr(),
+                                                html.Hr(style={'border-color':'#cb1828'}),
                                                 html.H6('Liquidity Metrics'),
                                                 html.P(id='liquidity-table'),
-                                                html.Hr(),
                                                 html.H6('Slippage %'),
                                                 html.P(id='depth-table'),
-                                                html.Hr(),
                                                 html.H6('Coin Stats'),
                                                 html.P(id='stat-table')]),
                                 html.Div(id='the-ob-data',style={'display':'none'}),
@@ -420,7 +407,7 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step):
     df_all=pd.concat([df_asks.sort_values(by='price',ascending=False),df_bids]).rename_axis('from_mid')
     rounding = [int(np.ceil(-np.log(mid*step)/np.log(10)))+1]
     r = int(np.ceil(-np.log(step)/np.log(10)))-2
-    decimals=pd.Series(rounding+[2]*4+rounding+[2]*2,index=df_all.columns)
+    decimals=pd.Series(rounding+[1]*4+rounding+[1]*2,index=df_all.columns)
     df_all=df_all.round(decimals).reset_index()
     df_all['from_mid'] = (df_all['from_mid']-1)
     table = dash_table.DataTable(
@@ -441,7 +428,7 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step):
             ]+[
             {
             'if' : {'filter': 'side eq "ask"' },
-            'color':'red'
+            'color':'rgb(203,24,40)'
         }]+[
             { 'if': {'row_index':'odd'},
             'backgroundColor':'rgb(242,242,242)'}
@@ -454,9 +441,9 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step):
         ],
         style_as_list_view=True
     )
-   
-    liq_dfs = [df.round(4) for df in get_liq_params(df,pair,step)]
+    
     try:
+        liq_dfs = [df.round(4) for df in get_liq_params(df,pair,step)]
         liq_tables = [dash_table.DataTable(
                 data=liq_df.to_dict('rows'),
                 columns=[{'id': c,'name':c} for c in liq_df.columns],

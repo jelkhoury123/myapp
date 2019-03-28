@@ -16,9 +16,10 @@ def get_data():
     prices = allderibit[columns]
     prices.columns = newcolumns
     prices = prices.sort_values(['Expiry','Strike','Ins']).reset_index(drop=True)[:-1]
-    now = pd.datetime.now().strftime('%Y-%m-%d %H:%M')
-    prices['T'] = prices.apply(lambda x: round((pd.to_datetime(x['Expiry'])-pd.to_datetime('now',utc = True)).total_seconds()/(365*24*60*60),4) ,axis=1)
-    prices['Expiry'] = prices["Expiry"].apply(lambda x: x.split(' ')[0])
+    prices['Expiry'] = prices["Expiry"].apply(lambda x: x.split(' ')[0]+' '+x.split(' ')[1])
+    now = pd.datetime.utcnow().strftime('%Y-%m-%d %H:%M')
+    prices['T'] = prices.apply(lambda x: round((pd.to_datetime(x['Expiry'])-pd.to_datetime(now)).total_seconds()/(365*24*60*60),4) ,axis=1)
+    prices['Expiry'] = prices['Expiry'].apply(lambda x : x.split(' ')[0])
     prices['Volume'].replace('',0,inplace=True)
     prices.replace('',np.nan,inplace=True)
     prices['Ins'] = prices['Ins'].apply(lambda x : 'C' if x =='call' else ('P' if x =='put' else 'F'))
@@ -35,11 +36,10 @@ def get_data():
     options['MidVol'] = options.apply(lambda x : BSiv(x['uPx'], x['Strike'], x['T'], x['iR'], x['Mid']*x['uPx'], option = x['Ins']) ,axis=1)
     options['AskVol'] = options.apply(lambda x : BSiv(x['uPx'], x['Strike'], x['T'], x['iR'], x['Ask']*x['uPx'], option = x['Ins']) ,axis=1)
     options['VolSpread']= options['AskVol']-options['BidVol']
-    #options = options[options['AskVol']-options['BidVol']<.3]
     options['Bid$'] = options['Bid']*options['uPx']
     options['Mid$'] = options['Mid']*options['uPx']
     options['Ask$'] = options['Ask']*options['uPx']
-    options['Vega'] = options.apply(lambda x : BSgreeks(x['uPx'], x['Strike'], x['T'], 0, x['MidVol'], option = 'C')[3]*.01,axis=1)
+    options['Vega'] = options.apply(lambda x : BSgreeks(x['uPx'], x['Strike'], x['T'], 0, x['MidVol'], option = 'C')[-1]*.01,axis=1)
 
     optmats = []
     T = []
@@ -68,10 +68,10 @@ def get_data():
         except:
             fit=[np.nan]
             fitparams.append(fit)
-            mat['Fit'] = mat['Strike'].apply(lambda x : np.nan)
             volfitquality.append(None)
-            mat['TV'] = mat.apply(lambda x:np.nan)
             pricefitquality.append(None)
+            mat['Fit'] = mat['MidVol']
+            mat['TV'] = mat.apply(lambda x: BSprice (ref, x['Strike'], t, x['iR'], x['Fit'], option = x['Ins']),axis=1)
             continue
             
     fitparams = pd.DataFrame(fitparams,columns=['Sigma','Skew','Kurt','Alpha'],index=Expiries)

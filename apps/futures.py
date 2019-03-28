@@ -4,14 +4,13 @@ import dash_html_components as html
 import dash_table 
 from dash_table.Format import Format, Scheme, Sign, Symbol
 import dash_table.FormatTemplate as FormatTemplate
-from dash.dependencies import Input, Output
+from dash.dependencies import Input, Output, State
 import plotly.graph_objs as go 
 import plotly.figure_factory as ffimport 
 import pandas as pd
 import plotly.graph_objs as go
 import numpy as np
 import itertools
-import ccxt
 import json
 import datetime as dt 
 
@@ -20,32 +19,46 @@ sys.path.append('..')
 
 from app import app
 
-
 ENABLE_WEBSOCKET_SUPPORT = False
 refresh_rate = 7 if ENABLE_WEBSOCKET_SUPPORT else 10
 if ENABLE_WEBSOCKET_SUPPORT:
-    import ccxt.websocket_support 
-    ccxt.bitmex = ccxt.websocket_support.bitmex
+    import diginex.ccxt.websocket_support as ccxt
+else:
+    import ccxt
     
 # Define my world
 deriv_exchanges =['deribit','bitmex']
 
 exchanges =  deriv_exchanges #+ spot_exchanges 
 
+api_keys = {'deribit':'4v58Wk2hhiG9B','bitmex':'DM55KFt84AfdjJiyNjDBk_km'}
+api_secrets = {'deribit':'QLXLOZCOHAEQ6XV247KEXAKPX43GZLT4','bitmex':'jPDWiZcKuXJtVpajawENQiBzCKO2U885i3TWU9WIihBBUZgc'}
+
 exch_dict={}
 for x in exchanges:
     exec('exch_dict[x]=ccxt.{}()'.format(x))
+for x,xccxt in exch_dict.items():
+    xccxt.load_markets()
+    xccxt.apiKey=api_keys[x]
+    xccxt.secret=api_secrets[x]
 
-Xpto= ['BTC','ETH']
+deribit = exch_dict['deribit']
+bitmex = exch_dict['bitmex']
+Xpto = ['BTC','ETH']
+deribit_ins = [i for i in deribit.markets if deribit.markets[i]['type']=='future' and deribit.markets[i]['base']=='BTC']
+bitmex_ins = [i for i in bitmex.markets if bitmex.markets[i]['type']in('future','swap') and bitmex.markets[i]['base']=='BTC' and bitmex.markets[i]['info']['hasLiquidity']]
 Futures = ['XBTM19','BTC-28JUN19']
+perpetuals = ['BTC/USD','BTC-PERPETUAL']
+pairs = deribit_ins + bitmex_ins
 
-pairs = ['BTC/USD','BTC-PERPETUAL'] + Futures
+Deribit = []
 
 def get_exchanges_for_pair(pair):
     '''input: a pair
     output: a dictionary of ccxt exchange objects of the exchanges listing the pair
     '''
     return {x:exch_dict[x] for x in exch_dict if pair in list(exch_dict[x].load_markets().keys())}
+
 def get_pairs_for_exchange(ex):
     '''input: an exchange
     output: a list of pairs '''
@@ -143,14 +156,14 @@ def plot_book(order_books,pair, exc, relative=True, currency=True, cutoff=.1):
         col_to_chart = ''
     if relative:
         trace_asks=go.Scatter(x=order_book.index,y=order_book['cum_ask_size'+col_to_chart],
-                        name='asks',marker=dict(color='rgba(255,0,0,0.6)'),fill='tozeroy',fillcolor='rgba(255,0,0,0.2)')
+                        name='asks',marker=dict(color='rgba(203,24,40,0.6)'),fill='tozeroy',fillcolor='rgba(203,24,40,0.2)')
         trace_bids=go.Scatter(x=order_book.index,y=order_book['cum_bid_size'+col_to_chart],
                         name='bids',marker=dict(color='rgba(0,0,255,0.6)'),fill='tozeroy',fillcolor='rgba(0,0,255,0.2)')     
     else:
         trace_asks=go.Scatter(x=order_book['ask'].fillna(0)+order_book['bid'].fillna(0),y=order_book['cum_ask_size'+col_to_chart],
-                        name='asks',marker=dict(color='rgba(255,0,0,0.6)'),fill='tozeroy',fillcolor='rgba(255,0,0,0.15)')
+                        name='asks',marker=dict(color='rgba(203,24,40,0.6)'),fill='tozeroy',fillcolor='rgba(203,24,40,0.2)')
         trace_bids=go.Scatter(x=order_book['ask'].fillna(0)+order_book['bid'].fillna(0),y=order_book['cum_bid_size'+col_to_chart],
-                        name='bids',marker=dict(color='rgba(0,0,255,0.6)'),fill='tozeroy',fillcolor='rgba(0,0,255,0.15)')
+                        name='bids',marker=dict(color='rgba(0,0,255,0.6)'),fill='tozeroy',fillcolor='rgba(0,0,255,0.2)')
         
     layout = go.Layout(title = ' - '.join(exc), xaxis = dict(title= pair +'  ' + str(best_bid)+' - '+ str(best_ask)))
     data=[trace_asks,trace_bids]
@@ -165,9 +178,9 @@ def plot_depth(order_books,pair, exc, relative=True, currency=True, cutoff=.1):
     order_book = build_book(order_books,pair,exc,cutoff)
     mid = (order_book['bid'].max()+order_book['ask'].min())/2 if relative else 1
     trace_asks = go.Scatter(x=order_book['cum_ask_size'+col_to_chart],y=order_book['average_ask_fill']/mid,
-                        name='ask depth',marker=dict(color='rgba(255,0,0,0.6)'),fill='tozerox',fillcolor='rgba(255,0,0,0.15)')
+                        name='ask depth',marker=dict(color='rgba(203,24,40,0.6)'),fill='tozerox',fillcolor='rgba(203,24,40,0.2)')
     trace_bids = go.Scatter(x=-order_book['cum_bid_size'+col_to_chart],y=order_book['average_bid_fill']/mid,
-                        name='bid depth',marker=dict(color='rgba(0,0,255,0.6)'),fill='tozerox',fillcolor='rgba(0,0,255,0.15)')
+                        name='bid depth',marker=dict(color='rgba(0,0,255,0.6)'),fill='tozerox',fillcolor='rgba(0,0,255,0.2)')
     data = [trace_asks,trace_bids]
     figure = go.Figure(data=data, layout={'title': 'Market Depth'})
     return figure
@@ -267,32 +280,16 @@ def get_liq_params(normalized,pair,step):
         
 title = 'Futures'
 
-nav_menu = html.Div(children=[
-                    html.A('HVG', href='/apps/hvg',style={'backgroung-color':'red','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Skew', href='/apps/skew',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('HIV', href='/apps/hiv',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Pricer', href='/apps/pricer',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Order Book', href='/apps/order_book',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Futures', href='/apps/futures',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    ])
-
 layout = html.Div(style={'marginLeft':25,'marginRight':25},
-                    children=[ html.Div(className='row',children=[nav_menu]),
-                        html.Hr(),
+                    children=[ 
                         html.Div(className='row',children=[
-                                        html.Div(className='six columns',
+                                        html.Div(className='four columns',
                                         children =[html.H6('Choose Pair'),
                                                     dcc.Dropdown(id='fut-pairs',
                                                                 options=[{'label':pair,'value':pair} for pair in pairs],
-                                                                value='BTC/USD'),
+                                                                value='BTC/USD',style={'border-color':'#cb1828'}),
                                                     html.H6('Book Params:'),
-                                                    html.Hr(),
+                                                    html.Hr(style={'border-color':'#cb1828'}),
                                                     html.Div(className='row',children=[
                                                     html.Div(className='three columns',children = [html.H6( 'X scale :')]),
                                                     html.Div(className='three columns',children=[dcc.RadioItems(id='fut-x-scale',
@@ -320,29 +317,79 @@ layout = html.Div(style={'marginLeft':25,'marginRight':25},
                                                                                         value = 3,
                                                                                         step = 1)]),
                                                     ]),
-                                                    html.Hr(),        
-                                                    html.H6(' Book Charts'),
+                                                    html.Hr(style={'border-color':'#cb1828'}),        
+                                                    html.H6('Book Charts'),
                                                     dcc.Graph(id='fut-order-book-chart'),
-                                                    html.Hr(),
+                                                    html.Hr(style={'border-color':'#cb1828'}),
                                                     dcc.Graph(id='fut-market-depth'),
                                                     html.H6(id='fut-time')
 
                                         ]),
-                                html.Div(className='six columns',
+                                html.Div(className='four columns',
                                     children =[html.H6('Choose Exchange'),
-                                                dcc.Dropdown(id='fut-exchanges',multi=True),
+                                                dcc.Dropdown(id='fut-exchanges',multi=True,style={'border-color':'#cb1828'},
+                                                value = list(get_exchanges_for_pair('BTC/USD').keys()),
+                                                options = [{'label':exch,'value':exch} for exch in get_exchanges_for_pair('BTC/USD').keys()]),
                                                 html.H6('Order Book'),
-                                                html.Hr(),
-                                                html.Div(id='fut-order-table'),
-                                                html.Hr(),
+                                                html.Hr(style={'border-color':'#cb1828'}),
+                                                html.Div(children=[dash_table.DataTable(id='fut-order-table',
+                                                columns=[{'id':'from_mid','name':'From Mid','type':'numeric','format':FormatTemplate.percentage(4)},
+                                                {'id':'price','name':'Price'},{'id':'size','name':'Size'},{'id':'cum_size','name': 'Size Total'},
+                                                {'id':'size_$','name':'Size $','type':'numeric','format':FormatTemplate.money(0)},
+                                                {'id':'cum_size_$','name':'Size Total $','type':'numeric','format':FormatTemplate.money(0)},
+                                                {'id':'average_fill','name':'Averge Fill'},{'id':'exc','name':'Exchange'},
+                                                {'id':'side','name':'side','hidden':True}],
+                                                    style_table={'border': 'thin lightgrey solid'},
+                                                    style_header={'backgroundColor':'lightgrey','fontWeight':'bold'},
+                                                    style_cell={'textAlign':'center','width':'12%'},
+                                                    style_data_conditional=[{
+                                                        'if' : {'filter':  'side eq "bid"' },
+                                                        'color':'blue'
+                                                                }
+                                                        ]+[
+                                                        {
+                                                        'if' : {'filter': 'side eq "ask"' },
+                                                        'color':'rgb(203,24,40)'
+                                                    }]+[
+                                                        { 'if': {'row_index':'odd'},
+                                                        'backgroundColor':'rgb(242,242,242)'}
+                                                    ]+[
+                                                        {'if':{'column_id':'price'},
+                                                        'fontWeight':'bold',
+                                                        'border': 'thin lightgrey solid'}
+                                                    ]+[{'if':{'column_id':'from_mid'},
+                                                        'fontWeight':'bold'}
+                                                    ],
+                                                    style_as_list_view=True
+                                                )
+                                                ]),
+                                                html.Hr(style={'border-color':'#cb1828'}),
                                                 html.H6('Liquidity Metrics'),
                                                 html.P(id='fut-liquidity-table'),
-                                                html.Hr(),
                                                 html.H6('Slippage %'),
                                                 html.P(id='fut-depth-table'),
-                                                html.Hr(),
                                                 html.H6('Coin Stats'),
                                                 html.P(id='fut-stat-table')]),
+                                html.Div(className='four columns',
+                                    children =[html.H6('Order Management'),
+                                    html.Hr(style={'border-color':'#cb1828'}),
+                                    html.H6('Orders'),
+                                    html.Hr(style={'border-color':'#cb1828'}),
+                                    html.Div(children = [dash_table.DataTable(
+                                        id ='fut-order-to-send',columns = [{'id':c,'name':c} for c in['B/S','Ins','Qty','Limit price','exc']],
+                                        style_table={'border': 'thin lightgrey solid'},
+                                        style_header={'fontWeight':'bold'},
+                                        style_cell={'textAlign':'center','width':'12%'},
+                                        style_as_list_view=True,
+                                        editable=True
+                                        )]),
+                                        html.Div(id='active'),
+                                        html.Button(id='send-order',children ='Place Order',style = {'margin-top' :'10px','background-color':'#cb1828','color':'#FFF'}),
+                                        dcc.ConfirmDialog(id='confirm',message = 'Submit Order ? '),
+                                        html.Div(id='output-confirm'),
+                                        html.H6('Open Orders'),
+                                        html.Hr(style={'border-color':'#cb1828'}),
+                                    ]),
                                 html.Div(id='the-fut-data',style={'display':'none'}),
                                 dcc.Interval(
                                     id='fut-interval-component',
@@ -358,7 +405,7 @@ layout = html.Div(style={'marginLeft':25,'marginRight':25},
                         ])
 
 @app.callback(Output('fut-time','children'),
-            [Input('fut-second','n_intervals'),Input('the-fut=data','children')])
+            [Input('fut-second','n_intervals'),Input('the-fut-data','children')])
 def update_time(n,order_books):
     time_snap = json.loads(order_books)[1]
     return (dt.datetime.now()-dt.datetime.strptime(time_snap,"%Y-%m-%d  %H:%M:%S")).seconds
@@ -378,7 +425,8 @@ def update_data(pair,ex,n):
     return json.dumps(save_this)
 
 @app.callback([Output('fut-order-book-chart','figure'),Output('fut-market-depth','figure'),
-            Output('fut-order-table','children'),Output('fut-liquidity-table','children'),
+            Output('fut-order-table','data'),#Output('fut-order-table','columns'),
+            Output('fut-liquidity-table','children'),
             Output('fut-depth-table','children'),Output('fut-stat-table','children')],
             [Input('the-fut-data','children'),
             Input('fut-pairs','value'),Input('fut-exchanges','value'),
@@ -395,7 +443,15 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step):
     book_plot = plot_book(order_books,pair,exchanges,relative,currency,cutoff)
     #plot depth
     depth_plot = plot_depth(order_books,pair,exchanges,relative,currency,cutoff)
-    # order table
+    # order table columns
+    r = int(np.ceil(-np.log(step)/np.log(10)))-2
+    columns_ob=[{'id':'from_mid','name':'From Mid','type':'numeric','format':FormatTemplate.percentage(4)},
+                {'id':'price','name':'Price'},{'id':'size','name':'Size'},{'id':'cum_size','name': 'Size Total'},
+                {'id':'size_$','name':'Size $','type':'numeric','format':FormatTemplate.money(0)},
+                {'id':'cum_size_$','name':'Size Total $','type':'numeric','format':FormatTemplate.money(0)},
+                {'id':'average_fill','name':'Averge Fill'},{'id':'exc','name':'Exchange'},
+                {'id':'side','name':'side','hidden':True}],
+    # order table data
     df =  build_book(order_books,pair,exchanges,cutoff,step)
     df_bids = df[[i for i in df.columns if 'bid' in i]].dropna().iloc[:13]
     df_bids['side'] = 'bid'
@@ -406,42 +462,10 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step):
     mid=(df_bids['price'].max() + df_asks['price'].min())/2
     df_all=pd.concat([df_asks.sort_values(by='price',ascending=False),df_bids]).rename_axis('from_mid')
     rounding = [int(np.ceil(-np.log(mid*step)/np.log(10)))+1]
-    r = int(np.ceil(-np.log(step)/np.log(10)))-2
-    decimals=pd.Series(rounding+[2]*4+rounding+[2]*2,index=df_all.columns)
+    decimals=pd.Series(rounding+[1]*4+rounding+[2]*2,index=df_all.columns)
     df_all=df_all.round(decimals).reset_index()
     df_all['from_mid'] = (df_all['from_mid']-1)
-    table = dash_table.DataTable(
-        data=df_all.to_dict('rows'),
-        columns=[{'id':'from_mid','name':'From Mid','type':'numeric','format':FormatTemplate.percentage(r)},
-        {'id':'price','name':'Price'},{'id':'size','name':'Size'},{'id':'cum_size','name': 'Size Total'},
-        {'id':'size_$','name':'Size $','type':'numeric','format':FormatTemplate.money(0)},
-        {'id':'cum_size_$','name':'Size Total $','type':'numeric','format':FormatTemplate.money(0)},
-        {'id':'average_fill','name':'Averge Fill'},{'id':'exc','name':'Exchange'},
-        {'id':'side','name':'side','hidden':True}],
-        style_table={'border': 'thin lightgrey solid'},
-        style_header={'backgroundColor':'lightgrey','fontWeight':'bold'},
-        style_cell={'textAlign':'center','width':'12%'},
-        style_data_conditional=[{
-            'if' : {'filter':  'side eq "bid"' },
-            'color':'blue'
-                    }
-            ]+[
-            {
-            'if' : {'filter': 'side eq "ask"' },
-            'color':'red'
-        }]+[
-            { 'if': {'row_index':'odd'},
-            'backgroundColor':'rgb(242,242,242)'}
-        ]+[
-            {'if':{'column_id':'price'},
-            'fontWeight':'bold',
-            'border': 'thin lightgrey solid'}
-        ]+[{'if':{'column_id':'from_mid'},
-            'fontWeight':'bold'}
-        ],
-        style_as_list_view=True
-    )
-    
+    data_ob = df_all.to_dict('rows')
     try:
         liq_dfs = [df.round(4) for df in get_liq_params(df,pair,step)]
         liq_tables = [dash_table.DataTable(
@@ -454,5 +478,26 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step):
     except:
         liq_tables=[0]*3
  
-    return (book_plot,depth_plot,table) + tuple(liq_tables)
+    return (book_plot,depth_plot,data_ob) + tuple(liq_tables)
 
+@app.callback(Output('fut-order-to-send','data'),
+            [Input('fut-order-table','active_cell'),Input('fut-pairs','value')],
+            [State('fut-order-table','data')])
+def update_order(active_cell,ins,data):
+    data_df=pd.DataFrame(data)
+    result = data_df.iloc[active_cell[0]]
+    columns = ['B/S','Ins','Qty','Limit price','exc']
+    order_df=pd.DataFrame(columns=columns)
+    order_df.loc[0]=['B' if result['side']=='ask' else 'S',ins,result['cum_size'],result['price'],result['exc']]
+    return order_df.to_dict('row')
+
+@app.callback(Output('confirm','displayed'),
+            [Input('send-order','n_clicks')])
+def display_confirm(n_clicks):
+    return True
+
+@app.callback(Output('output-confirm','children'),
+[Input('confirm','submit_n_clicks')])
+def update_output(submit_n_clicks):
+    if submit_n_clicks:
+        return 'Order sent'

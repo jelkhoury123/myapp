@@ -25,28 +25,11 @@ title = 'Historical Volatility'
 
 pair_options = [{'label':pair,'value':pair} for pair in xpto]
 
-nav_menu = html.Div(children=[
-                    html.A('HVG', href='/apps/hvg',style={'backgroung-color':'red','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Skew', href='/apps/skew',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('HIV', href='/apps/hiv',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Pricer', href='/apps/pricer',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Order Book', href='/apps/order_book',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Futures', href='/apps/futures',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    ])
-
-
-layout = html.Div(children = [
-                html.Div(className='row',children=[nav_menu]),
-                html.Hr(),
+layout = html.Div(style={'marginLeft':25,'marginRight':25},children = [
                 html.Div(className='row',children=[
                     html.Div(className='four columns',children=
-                            dcc.Dropdown(id='pairs-chosen',options = pair_options,value=[xpto[0]],style={'width':'90%','display':'inline-block'},
+                            dcc.Dropdown(id='pairs-chosen',options = pair_options,value=[xpto[0]],
+                            style={'width':'90%','display':'inline-block','border-color':'#cb1828'},
                             multi=True
                             )
                         ),
@@ -59,7 +42,7 @@ layout = html.Div(children = [
                                         initial_visible_month=dt.datetime(2017,1,1),
                                         date=dt.datetime(2018,1,1),
                                         placeholder='Starting Date:',
-                                        day_size=35),
+                                        day_size=35,style={'border-color':'#cb1828'}),
                         style={'textAlign':'left'}
                         ),
                     html.Div(className='three columns',children=
@@ -168,11 +151,8 @@ def update_page(json_data,pairs,start_date):
     hist_table = dash_table.DataTable(
         data=df.to_dict('rows'),
         columns =[{'id': c,'name':c} for c in df.columns[:-4]]+ [{'id':c,'name':c,'type':'numeric',
-                                                                'format':FormatTemplate.percentage(2)}for c in df.columns[-4:]],
-        style_table={
-            'maxHeight': '500',
-            'overflowY': 'scroll'
-        },
+                                            'format':FormatTemplate.percentage(2)}for c in df.columns[-4:]],
+        style_table={'overflowY': 'scroll','maxHeight':'500 px'},
         style_header= {'backgroundColor':'lightgrey','fontWeight':'bold'},
         style_cell = {'textAlign':'center'},
         n_fixed_rows=1

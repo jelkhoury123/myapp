@@ -59,25 +59,7 @@ title='Historical Implied Vols'
 
 ix = [(pd.to_datetime(fit.index.name,utc=True),fit['Ref'][0]) for fit in fits]
 
-nav_menu = html.Div(children=[
-                    html.A('HVG', href='/apps/hvg',style={'backgroung-color':'red','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Skew', href='/apps/skew',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('HIV', href='/apps/hiv',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Pricer', href='/apps/pricer',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Order Book', href='/apps/order_book',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    html.A('Futures', href='/apps/futures',style={'backgroung-color':'#c1bfbf','color':'black','padding':'10px 15px',
-                                        'text-align':'center','display':'inline-block','text-decoration':'None'}),
-                    ])
-
-
-layout = html.Div(children=[
-    html.Div(className='row',children=[nav_menu]),
-    html.Hr(),
+layout = html.Div(style={'marginLeft':25,'marginRight':25},children=[
     dcc.Graph(id = 'base',
         figure = go.Figure(
             data=[go.Scatter(x=pd.DataFrame(ix)[0],y=pd.DataFrame(ix)[1])],
@@ -128,8 +110,7 @@ def skewplot(timeindex,expindex):
         )
     return dcc.Graph(figure=go.Figure(data=[bid,mid,fit,ask],layout=layout))
 
-
-@app.callback(Output('hiv-fit-table','columns'),
+@app.callback([Output('hiv-fit-table','columns'),Output('hiv-fit-table','data')],
             [Input('base','clickData')])
 def update_fit_table(clickdata):
     timestamp = int(clickdata['points'][0]['pointIndex'])
@@ -139,14 +120,7 @@ def update_fit_table(clickdata):
         if dic['id'] in ['Sigma','Skew','Kurt','vol_q','VolSpread']:
             dic['type'] = 'numeric'
             dic['format']= FormatTemplate.percentage(2)
-    return table_columns 
-
-@app.callback(Output('hiv-fit-table','data'),
-            [Input('base','clickData')])
-def fit_table_data(clickdata):
-    timestamp = int(clickdata['points'][0]['pointIndex'])
-    table = fits[timestamp].reset_index().round(4)
-    return table.to_dict('rows')
+    return table_columns , table.to_dict('rows')
 
 @app.callback([Output('hiv-TS','figure'),Output('skew-plot','children'),Output('hist-plot','children')],
         [Input('base','clickData'),Input('hiv-fit-table','active_cell')])
