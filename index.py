@@ -7,7 +7,7 @@ from apps import hvg, skew, pricer, order_book, futures ,hiv
 
 style={'color':'#808285','padding':'10px 15px','font-size':'20',
                                 'text-align':'center','display':'inline-block','text-decoration':'None','marginRight':'7px'}
-nav_menu = html.Div(children=[
+nav_menu = html.Div(style={'margin-bottom':'1px'},children=[
                     html.A('HVG', href='/apps/hvg',style=style,id='hvg-link'),
                     html.A('Skew', href='/apps/skew',style= style,id='skew-link'),
                     html.A('HIV', href='/apps/hiv',style=style,id='hiv-link'),
@@ -16,13 +16,11 @@ nav_menu = html.Div(children=[
                     html.A('Futures', href='/apps/futures',style=style,id='fut-link')],
                     )
 app.title = 'Home'
-app.layout = html.Div([
+app.layout = html.Div(style={'margin-bottom':'2px'},children=[
     dcc.Location(id='url',refresh=False),
     html.Div(className='row',children=[nav_menu, html.Hr(style={'border-color':'#cb1828'})],
     style={'background-image':'url("/assets/diginex_inline_logo.svg")',
     'background-repeat': 'no-repeat','background-position': '98% 18%','background-size': '300px 30px',}),
-    #'background-margin-top':'30px','background-margin-bottom':'1px'}),
-    #'position':'fixed','top':'0','width':'100%','height':'100px'}),
     html.Div(id = 'page-content')
 ])
 

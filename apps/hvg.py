@@ -40,7 +40,7 @@ layout = html.Div(style={'marginLeft':25,'marginRight':25},children = [
                                         min_date_allowed=dt.datetime(2012,1,1),
                                         max_date_allowed=dt.datetime.now(),
                                         initial_visible_month=dt.datetime(2017,1,1),
-                                        date=dt.datetime(2018,1,1),
+                                        date=dt.datetime(2018,12,1),
                                         placeholder='Starting Date:',
                                         day_size=35,style={'border-color':'#cb1828'}),
                         style={'textAlign':'left'}
