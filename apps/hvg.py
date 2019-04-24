@@ -19,7 +19,7 @@ sys.path.append('..')
 
 from app import app
 
-xpto= ['BTC-USD','ETH-USD','XRP-USD','XMR-USD','BCH-USD','EOS-USD','USDT-USD','XLM-USD']
+xpto= ['BTC-USD','ETH-USD','XRP-USD','ETH-BTC']#,'BCH-USD','EOS-USD','USDT-USD','XLM-USD']
         
 title = 'Historical Volatility'
 

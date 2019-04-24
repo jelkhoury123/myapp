@@ -28,7 +28,7 @@ else:
     
 # Define my world
 spot_exchanges = ['bitfinex','bitstamp','coinbasepro','kraken','liquid','gemini','binance',
-                    'bitbank','huobipro','bithumb','bittrex','kucoin2']
+                    'bitbank','bithumb','bittrex','kucoin2','poloniex']
 #deriv_exchanges =['deribit','bitmex']
 
 exchanges = spot_exchanges #+ deriv_exchanges
@@ -43,8 +43,8 @@ for x in exchanges:
     else:
         exec('exch_dict[x]=ccxt.{}()'.format(x))
 
-Xpto= ['BTC','ETH','XRP','LTC','EOS','XMR','BCH','USDT','USDC','TRX','XLM','BSV','XBT','CSP','DAI']
-Fiat=['USD','EUR','GBP','CHF','HKD','JPY','CNH','KRW']
+Xpto= ['BTC','ETH','XRP','USDT','USDC','TUSD']#,'LTC','EOS','XMR','BCH','USDT','USDC','TRX','XLM','BSV','XBT','CSP','DAI']
+Fiat=['USD','EUR','GBP','CHF','HKD','JPY','CNH']#,'KRW']
 xpto_fiat = [xpto+'/'+ fiat for xpto in Xpto for fiat in Fiat]
 xpto_xpto = [p[0]+'/'+p[1] for p in itertools.permutations(Xpto,2)]
 

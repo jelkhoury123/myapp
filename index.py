@@ -3,7 +3,7 @@ import dash_html_components as html
 from dash.dependencies import Input, Output
 
 from app import app
-from apps import hvg, skew, pricer, order_book, futures ,hiv
+from apps import hvg, skew, pricer, order_book, futures ,hiv, spreads
 
 style={'color':'#808285','padding':'10px 15px','font-size':'20',
                                 'text-align':'center','display':'inline-block','text-decoration':'None','marginRight':'7px'}
@@ -13,7 +13,9 @@ nav_menu = html.Div(style={'margin-bottom':'1px'},children=[
                     html.A('HIV', href='/apps/hiv',style=style,id='hiv-link'),
                     html.A('Pricer', href='/apps/pricer',style=style,id='pricer-link'),
                     html.A('Order Book', href='/apps/order_book',style=style,id='ob-link'),
-                    html.A('Futures', href='/apps/futures',style=style,id='fut-link')],
+                    html.A('Futures', href='/apps/futures',style=style,id='fut-link'),
+                    html.A('Spreads', href='/apps/spreads',style=style,id='spr-link')
+                    ],
                     )
 app.title = 'Home'
 app.layout = html.Div(style={'margin-bottom':'2px'},children=[
@@ -45,6 +47,9 @@ def display_page(pathname):
     elif pathname == '/apps/futures':
         app.title = futures.title
         return futures.layout
+    elif pathname == '/apps/spreads':
+        app.title = spreads.title
+        return spreads.layout
     else:
         return html.Div(html.Img(src='/assets/diginex_chain_logo.svg',
                         style={'opacity':0.4,'display':'block','margin-left':'auto','margin-right':'auto',

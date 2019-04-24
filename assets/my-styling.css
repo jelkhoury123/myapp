@@ -359,7 +359,7 @@ td:last-child {
   background-color: #fafbfc;
   padding: 12px !important;
   font-family: "system-ui";
-  display: flex !important;
+  font-size: 2.0rem;
   align-items: center;
   justify-content: center;
 }

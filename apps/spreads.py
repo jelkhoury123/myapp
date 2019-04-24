@@ -47,36 +47,43 @@ bitmex = exch_dict['bitmex']
 
 Xpto_base = ['BTC','ETH']
 
-def get_d1_instruments():
+trade_types = ['Outright','Spread']
+
+def get_instruments():
     '''
-    returns a dictionary with keys deribit and bitmex
-    each of which is in turn a dictionary with keys: BTC ETH and values: list containing Futures and Swaps traded on base 
+    returns 2 dictionaries for deribit and bitmex
+    key (base) : value list containing Futures and Swaps traded on base 
     and not expired
     '''
-    all_ins={}
-    for exc,exc_obj in exch_dict.items():
-        all_ins[exc]={}
-        for base in Xpto_base:
-            base_list=[]
-            for ins in getattr(exc_obj,'markets'):
-                market = getattr(exc_obj,'markets')[ins]
-                if market['type'] in ('future','swap') and market['base']==base and not ins.startswith('.') and '_' not in ins:
-                    if exc == 'bitmex':
-                        expiry = market['info']['expiry']
-                        if expiry is None:
-                            base_list.append(ins)
-                        else:
-                            dt_expiry = dt.datetime.strptime(expiry,"%Y-%m-%dT%H:%M:%S.%fZ")
-                            if dt_expiry > dt.datetime.now():
-                                base_list.append(ins)
-                    else:
+    deribit_all_ins={}
+    for base in Xpto_base:
+        base_list=[]
+        for ins in deribit.markets:
+            market = deribit.markets[ins]
+            if market['type']=='future' and market['base']==base:
+                base_list.append(ins)
+        deribit_all_ins[base]=base_list
+    bitmex_all_ins={}
+    for base in Xpto_base:
+        base_list=[]
+        for ins in bitmex.markets:
+            market = bitmex.markets[ins]
+            if market['type'] in ('future','swap') and market['base']==base and market['info']['hasLiquidity']:
+                expiry = market['info']['expiry']
+                if expiry is None:
+                    base_list.append(ins)
+                else:
+                    dt_expiry = dt.datetime.strptime(expiry,"%Y-%m-%dT%H:%M:%S.%fZ")
+                    if dt_expiry > dt.datetime.now():
                         base_list.append(ins)
-            all_ins[exc][base]=base_list
-    
-    return all_ins
+        bitmex_all_ins[base]=base_list
+    return deribit_all_ins,bitmex_all_ins
 
-instruments = get_d1_instruments()
-deribit_d1_ins , bitmex_d1_ins = instruments['deribit'], instruments['bitmex']
+deribit_all_ins , bitmex_all_ins = get_instruments()
+deribit_ins = deribit_all_ins['BTC']
+bitmex_ins= bitmex_all_ins['BTC']
+instruments = deribit_ins + bitmex_ins
+
 
 def get_exchanges_for_ins(ins):
     '''input: an instrument 
@@ -101,7 +108,7 @@ def get_order_books(ins,ex):
     '''
     order_books = {key: value.fetch_order_book(ins,limit=2000,
                         params={'full':1,'level':3,'limit_bids':0,'limit_asks':0,'type':'both'}) for key,value in ex.items() }
-    if 'deribit' in order_books and 'BTC' in ins:
+    if 'deribit' in order_books:
         bids_df = pd.DataFrame(order_books['deribit']['bids'])
         asks_df = pd.DataFrame(order_books['deribit']['asks'])
         bids_df[1]=bids_df[1]*10
@@ -313,8 +320,8 @@ def get_liq_params(normalized,ins,step):
 
 def get_open_orders():
     deribit_open_orders = []
-    for coin in deribit_d1_ins:
-        for symbol in deribit_d1_ins[coin]:
+    for coin in deribit_all_ins:
+        for symbol in deribit_all_ins[coin]:
             orders = deribit.fetch_open_orders(symbol)
             deribit_open_orders+= orders
     for order in deribit_open_orders:
@@ -339,8 +346,8 @@ def get_open_orders():
 
 def get_closed_orders(start):
     deribit_closed_orders = []
-    for coin in deribit_d1_ins:
-        for symbol in deribit_d1_ins[coin]:
+    for coin in deribit_all_ins:
+        for symbol in deribit_all_ins[coin]:
             orders = deribit.fetch_closed_orders(symbol)
             deribit_closed_orders+= orders
     for order in deribit_closed_orders:
@@ -376,66 +383,77 @@ def get_balances():
     return b
 
 
-title = 'Futures'
+title = 'Spreads'
 
 layout = html.Div(style={'marginLeft':35,'marginRight':35},
                     children=[ 
                         html.Div(className='row',style={'margin-top':'2px'},children=[
                                         html.Div(className='four columns',
-                                        children =[html.H6('Choose Base'),
-                                            dcc.RadioItems(id='choose-base',
-                                                        options = [{'label':base,'value':base} for base in Xpto_base],
-                                                        value = Xpto_base[0],
-                                                        labelStyle={'display':'inline-block'}),
-                                            html.Hr(style={'border-color':'#cb1828'}),
-                                            html.H6('Choose Instrument'),
-                                            dcc.Dropdown(id='fut-ins',
-                                                        style={'border-color':'#cb1828'}),
-                                            html.H6('Book Params:'),
-                                            html.Hr(style={'border-color':'#cb1828'}),
-                                            html.Div(className='row',children=[
-                                            html.Div(className='two columns',children = [html.H6( 'X :')]),
-                                            html.Div(className='four columns',children=[dcc.RadioItems(id='fut-x-scale',
-                                                        options=[{'label':scale,'value':scale} for scale in ['Relative','Absolute']], 
-                                                        value ='Relative',
-                                                        labelStyle={'display':'inline-block'})]),
-                                            html.Div(className='two columns',children = [html.H6('Y :')]),
-                                            html.Div(className='four columns',children=[dcc.RadioItems(id='fut-y-scale',
-                                                        options=[{'label':scale,'value':scale} for scale in ['Currency','Coin']], 
-                                                        value ='Currency',
-                                                        labelStyle={'display':'inline-block'})])
-                                            ]),
-                                            html.Div(className='row',children=[
-                                            html.Div(className='three columns',children =[html.H6('Cutoff % :')]),
-                                            html.Div(className='three columns',style={'width' :'50%','align':'right'},children =[
-                                            dcc.Slider(id='fut-cutoff',
-                                                    min=.05,max=.3,step=.05,value=.1,
-                                                    marks={round(j,2): str(round(j,2)) for j in list(np.arange(.05,.35,.05))})]),
-                                            ]),
-                                            html.Div(className='row',children=[
-                                            html.Div(className='three columns',children =[html.H6('Price Agg (bps):')]),
-                                            html.Div(className='three columns',style={'width' :'50%','align':'right'},children =[dcc.Slider(id='fut-agg-level',
-                                                                                marks = {i:10**(i-2) for i in range(0,5)},
-                                                                                max = 4,
-                                                                                value = 2,
-                                                                                step = 1)]),
-                                            ]),
-                                            html.Hr(style={'border-color':'#cb1828'}),        
-                                            html.H6('Book Charts'),
-                                            dcc.Graph(id='fut-order-book-chart'),
-                                            html.Hr(style={'border-color':'#cb1828'}),
-                                            dcc.Graph(id='fut-market-depth'),
-                                            html.H6(id='fut-time')
+                                            children = [
+                                                html.Div(className = 'row',children = [
+                                                    html.H6('Base'),
+                                                    dcc.RadioItems(id='spr-choose-base',
+                                                            options = [{'label':base,'value':base} for base in Xpto_base],
+                                                            value = Xpto_base[0],
+                                                            labelStyle={'display':'inline-block'})]),
+                                                html.Hr(style={'border-color':'#cb1828'}),
+                                                html.Div(className='row', children = [
+                                                html.Div(className = 'five columns', children = [
+                                                html.H6('+ Ins'),
+                                                dcc.Dropdown(id='spr-ins',
+                                                            style={'border-color':'#cb1828'})]),
+                                                html.Div(className = 'five columns', children = [
+                                                html.H6('- Ins'),
+                                                dcc.Dropdown(id='spr-short-ins',
+                                                            style={'border-color':'#cb1828'})]),
+                                                html.Hr(style={'border-color':'#cb1828'}),
+                                                ]),
+                                                html.Div(className='row', children = [
+                                                html.H6('Book Params:'),
+                                                html.Hr(style={'border-color':'#cb1828'}),
+                                                html.Div(className='row',children=[
+                                                html.Div(className='two columns',children = [html.H6( 'X :')]),
+                                                html.Div(className='four columns',children=[dcc.RadioItems(id='spr-x-scale',
+                                                            options=[{'label':scale,'value':scale} for scale in ['Relative','Absolute']], 
+                                                            value ='Relative',
+                                                            labelStyle={'display':'inline-block'})]),
+                                                html.Div(className='two columns',children = [html.H6('Y :')]),
+                                                html.Div(className='four columns',children=[dcc.RadioItems(id='spr-y-scale',
+                                                            options=[{'label':scale,'value':scale} for scale in ['Currency','Coin']], 
+                                                            value ='Currency',
+                                                            labelStyle={'display':'inline-block'})])
+                                                ]),
+                                                html.Div(className='row',children=[
+                                                html.Div(className='three columns',children =[html.H6('Cutoff % :')]),
+                                                html.Div(className='three columns',style={'width' :'50%','align':'right'},children =[
+                                                dcc.Slider(id='spr-cutoff',
+                                                        min=.05,max=.3,step=.05,value=.1,
+                                                        marks={round(j,2): str(round(j,2)) for j in list(np.arange(.05,.35,.05))})]),
+                                                ]),
+                                                html.Div(className='row',children=[
+                                                html.Div(className='three columns',children =[html.H6('Price Agg (bps):')]),
+                                                html.Div(className='three columns',style={'width' :'50%','align':'right'},children =[dcc.Slider(id='spr-agg-level',
+                                                                                    marks = {i:10**(i-2) for i in range(0,5)},
+                                                                                    max = 4,
+                                                                                    value = 2,
+                                                                                    step = 1)]),
+                                                ]),
+                                                html.Hr(style={'border-color':'#cb1828'})]),       
+                                                html.H6('Book Charts'),
+                                                dcc.Graph(id='spr-order-book-chart'),
+                                                html.Hr(style={'border-color':'#cb1828'}),
+                                                dcc.Graph(id='spr-market-depth'),
+                                                html.H6(id='spr-time')
+                                             ]),
 
-                                        ]),
-                                html.Div(className='four columns',
-                                    children =[html.H6('Choose Exchange'),
-                                                dcc.Dropdown(id='fut-exchanges',multi=True,style={'border-color':'#cb1828'},
+                                        html.Div(className='four columns',
+                                            children =[html.H6('Choose Exchange'),
+                                                dcc.Dropdown(id='spr-exchanges',multi=True,style={'border-color':'#cb1828'},
                                                 value = list(get_exchanges_for_ins('BTC/USD').keys()),
                                                 options = [{'label':exch,'value':exch} for exch in get_exchanges_for_ins('BTC/USD').keys()]),
                                                 html.H6('Order Book'),
                                                 html.Hr(style={'border-color':'#cb1828'}),
-                                                html.Div(children=[dash_table.DataTable(id='fut-order-table',
+                                                html.Div(children=[dash_table.DataTable(id='spr-order-table',
                                                 columns=[{'id':'from_mid','name':'From Mid','type':'numeric','format':FormatTemplate.percentage(4).sign(Sign.positive)},
                                                 {'id':'price','name':'Price'},{'id':'size','name':'Size'},{'id':'cum_size','name': 'Size Total'},
                                                 {'id':'size_$','name':'Size $','type':'numeric','format':FormatTemplate.money(0)},
@@ -468,11 +486,11 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
                                                 ]),
                                                 html.Hr(style={'border-color':'#cb1828'}),
                                                 html.H6('Liquidity Metrics'),
-                                                html.P(id='fut-liquidity-table'),
+                                                html.P(id='spr-liquidity-table'),
                                                 html.H6('Slippage %'),
-                                                html.P(id='fut-depth-table'),
+                                                html.P(id='spr-depth-table'),
                                                 html.H6('Coin Stats'),
-                                                html.P(id='fut-stat-table')]),
+                                                html.P(id='spr-stat-table')]),
 
                                 html.Div(className='four columns',
                                     children =[html.H6('Order Management'),
@@ -480,7 +498,7 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
                                     html.H6('Order'),
                                     html.Hr(style={'border-color':'#cb1828'}),
                                     html.Div(style={'height':'100px'},children = [dash_table.DataTable(
-                                        id ='fut-order-to-send',
+                                        id ='spr-order-to-send',
                                         columns = [{'id':'B/S','name':'B/S','presentation':'dropdown'}]+[{'id':c,'name':c} for c in ['Ins','Qty','Limit price','exc']],
                                         data = [{'B/S':'B',**{p:0 for p in ['Ins','Qty','Limit price','exc']}}],
                                         style_table={'border': '1.5px solid','border-color':'#cb1828','border-collapse':'collapse'},
@@ -497,11 +515,11 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
                                                 ]
                                             }]
                                         )]),
-                                        html.Div(id='active'),
-                                        html.Button(id='send-order',style={'display':'none'}),
-                                        dcc.ConfirmDialog(id='confirm',message = 'Submit Order ? '),
-                                        html.Div(id='output-confirm',style={'margin-top':'30px'},children=['Here']),
-                                        html.Div([dcc.Tabs(id='orders',className = 'custom-tabs-container',parent_className='custom-tabs',
+                                        html.Div(id='spr-active'),
+                                        html.Button(id='spr-send-order',style={'display':'none'}),
+                                        dcc.ConfirmDialog(id='spr-confirm',message = 'Submit Order ? '),
+                                        html.Div(id='spr-output-confirm',style={'margin-top':'30px'},children=['Here']),
+                                        html.Div([dcc.Tabs(id='spr-orders',className = 'custom-tabs-container',parent_className='custom-tabs',
                                          children=[
                                             dcc.Tab(label='Open Orders',className='custom-tab', selected_className='custom-tab--selected',
                                             style = {'overflow':'hidden'},
@@ -542,37 +560,37 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
                                         ])]),
                                         html.Hr(style={'border-color':'#cb1828'}),
                                         html.H6('Balances'),
-                                        html.Div(id='balances')
+                                        html.Div(id='spr-balances')
                                     ]),
-                                html.Div(id='the-fut-data',style={'display':'none'}),
+                                html.Div(id='the-spr-data',style={'display':'none'}),
                                 dcc.Interval(
-                                    id='fut-interval-component',
+                                    id='spr-interval-component',
                                     interval = refresh_rate * 1000, # in milliseconds= 7 or 10 seconds
                                     n_intervals=0
                                     ),
                                 dcc.Interval(
-                                    id='fut-second',
+                                    id='spr-second',
                                     interval = 1000,
                                     n_intervals=0
                                 )     
                         ]),
                         ])
 
-@app.callback([Output('fut-ins','options'),Output('fut-ins','value')],
-            [Input('choose-base','value')])
+@app.callback([Output('spr-ins','options'),Output('spr-ins','value')],
+            [Input('spr-choose-base','value')])
 def update_ins(radio_button_value):
-    instruments = deribit_d1_ins[radio_button_value]+bitmex_d1_ins[radio_button_value]
+    instruments = deribit_all_ins[radio_button_value]+bitmex_all_ins[radio_button_value]
     options=[{'label':ins,'value':ins} for ins in instruments]
     value=instruments[0]
     return options, value
 
-@app.callback([Output('fut-exchanges','options'),Output('fut-exchanges','value')],
-            [Input('fut-ins','value')])
+@app.callback([Output('spr-exchanges','options'),Output('spr-exchanges','value')],
+            [Input('spr-ins','value')])
 def update_exchanges_options(ins):
     return [{'label':exch,'value':exch} for exch in get_exchanges_for_ins(ins).keys()] ,list(get_exchanges_for_ins(ins).keys())
 
-@app.callback(Output('the-fut-data','children'),
-            [Input('fut-ins','value'),Input('fut-exchanges','value'),Input('fut-interval-component','n_intervals')])
+@app.callback(Output('the-spr-data','children'),
+            [Input('spr-ins','value'),Input('spr-exchanges','value'),Input('spr-interval-component','n_intervals')])
 def update_data(ins,ex,n):
     now = dt.datetime.now()
     ex = {x:exch_dict[x] for x in ex}
@@ -580,20 +598,20 @@ def update_data(ins,ex,n):
     save_this = (order_books,now.strftime("%Y-%m-%d  %H:%M:%S"))
     return json.dumps(save_this)
 
-@app.callback(Output('fut-time','children'),
-            [Input('fut-second','n_intervals'),Input('the-fut-data','children')])
+@app.callback(Output('spr-time','children'),
+            [Input('spr-second','n_intervals'),Input('the-spr-data','children')])
 def update_time(n,order_books):
     time_snap = json.loads(order_books)[1]
     return (dt.datetime.now()-dt.datetime.strptime(time_snap,"%Y-%m-%d  %H:%M:%S")).seconds
 
-@app.callback([Output('fut-order-book-chart','figure'),Output('fut-market-depth','figure'),
-            Output('fut-order-table','data'),#Output('fut-order-table','columns'),
-            Output('fut-liquidity-table','children'),
-            Output('fut-depth-table','children'),Output('fut-stat-table','children')],
-            [Input('the-fut-data','children'),Input('choose-base','value'),
-            Input('fut-ins','value'),Input('fut-exchanges','value'),
-            Input('fut-x-scale','value'),Input('fut-y-scale','value'),
-            Input('fut-cutoff','value'),Input('fut-agg-level','value')])
+@app.callback([Output('spr-order-book-chart','figure'),Output('spr-market-depth','figure'),
+            Output('spr-order-table','data'),#Output('spr-order-table','columns'),
+            Output('spr-liquidity-table','children'),
+            Output('spr-depth-table','children'),Output('spr-stat-table','children')],
+            [Input('the-spr-data','children'),Input('spr-choose-base','value'),
+            Input('spr-ins','value'),Input('spr-exchanges','value'),
+            Input('spr-x-scale','value'),Input('spr-y-scale','value'),
+            Input('spr-cutoff','value'),Input('spr-agg-level','value')])
 def update_page(order_books,base,ins,exchanges,x_scale,y_scale,cutoff,step):
     #load data
     step = 10**(step-2)/10000
@@ -643,9 +661,9 @@ def update_page(order_books,base,ins,exchanges,x_scale,y_scale,cutoff,step):
  
     return (book_plot,depth_plot,data_ob) + tuple(liq_tables)
 
-@app.callback(Output('fut-order-to-send','data'),
-            [Input('fut-order-table','active_cell'),Input('fut-ins','value')],
-            [State('fut-order-table','data')])
+@app.callback(Output('spr-order-to-send','data'),
+            [Input('spr-order-table','active_cell'),Input('spr-ins','value')],
+            [State('spr-order-table','data')])
 def update_order(active_cell,ins,data):
     data_df=pd.DataFrame(data)
     row = data_df.iloc[active_cell[0]]
@@ -655,8 +673,8 @@ def update_order(active_cell,ins,data):
     order_df.loc[0]=['B' if row['side']=='bid' else 'S',ins,size,row['price'],row['exc']]
     return order_df.to_dict('row')
 
-@app.callback([Output('send-order','children'),Output('send-order','style')],
-                [Input('fut-order-to-send','data')])
+@app.callback([Output('apr-send-order','children'),Output('spr-send-order','style')],
+                [Input('spr-order-to-send','data')])
 def update_button(order):
     side = pd.DataFrame(order).iloc[0]['B/S']
     side_text = 'Buy' if side == 'B' else 'Sell'
@@ -669,14 +687,14 @@ def update_button(order):
     return (text,style)
 
 
-@app.callback(Output('confirm','displayed'),
-            [Input('send-order','n_clicks')])
+@app.callback(Output('spr-confirm','displayed'),
+            [Input('spr-send-order','n_clicks')])
 def display_confirm(n_clicks):
     return True
 
-@app.callback(Output('output-confirm','children'),
+@app.callback(Output('spr-output-confirm','children'),
 [Input('confirm','submit_n_clicks')],
-[State('fut-order-to-send','data')])
+[State('spr-order-to-send','data')])
 def update_output(submit_n_clicks,order):
     if submit_n_clicks:
         order = pd.DataFrame(order).iloc[0]
@@ -685,8 +703,8 @@ def update_output(submit_n_clicks,order):
         exch_dict[exc].create_limit_order(order['Ins'],side, str(order['Qty']), str(order['Limit price']))
         return 'Order sent'
 
-@app.callback([Output('open-orders','data'),Output('open-orders','columns')],
-            [Input('fut-interval-component','n_intervals')])
+@app.callback([Output('spr-open-orders','data'),Output('spr-open-orders','columns')],
+            [Input('spr-interval-component','n_intervals')])
 def update_open(interval):
     oo = get_open_orders()
     oo['Cancel']='X'
@@ -696,9 +714,9 @@ def update_open(interval):
     columns[0]['hidden'] = True
     return data,columns
 
-@app.callback(Output('cancel-confirm','children'),
-            [Input('open-orders','active_cell')],
-            [State ('open-orders','data')])
+@app.callback(Output('spr-cancel-confirm','children'),
+            [Input('spr-open-orders','active_cell')],
+            [State ('spr-open-orders','data')])
 def cancel_order(active_cell,open_orders):
     oo=pd.DataFrame(open_orders)
     if active_cell[1] == 8:
@@ -709,8 +727,8 @@ def cancel_order(active_cell,open_orders):
     else:
         return active_cell
 
-@app.callback([Output('closed-orders','data'),Output('closed-orders','columns')],
-            [Input('fut-interval-component','n_intervals')])
+@app.callback([Output('spr-closed-orders','data'),Output('spr-closed-orders','columns')],
+            [Input('spr-interval-component','n_intervals')])
 def update_closed(interval):
     year = pd.to_datetime('today').year
     month = pd.to_datetime('today').month
@@ -723,8 +741,8 @@ def update_closed(interval):
     columns[0]['hidden'] = True
     return data,columns
 
-@app.callback(Output('balances','children'),
-            [Input('fut-interval-component','n_intervals')])
+@app.callback(Output('spr-balances','children'),
+            [Input('spr-interval-component','n_intervals')])
 def update_balance(interval):
     b = get_balances()
     return dash_table.DataTable(

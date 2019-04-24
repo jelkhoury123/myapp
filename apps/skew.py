@@ -19,7 +19,7 @@ import pandas as pd
 import sys
 sys.path.append('..')
 
-from deribit_api2 import get_data
+from deribit_api3 import get_data
 
 from app import app
 
@@ -46,6 +46,12 @@ layout_block = [ html.Div(className='six columns',children=[
                  for i in range (1,5)]
 
 layout = html.Div(id='skew-page',style={'marginLeft':25,'marginRight':25},children=[
+                        html.Div(id='currency',className='row',children =[
+                            dcc.RadioItems(id='choose_ccy',
+                                            options=[{'label':'BTC','value':'BTC'},{'label':'ETH','value':'ETH'}],
+                                            value='BTC',labelStyle={'display':'inline-block'})
+                        ]),
+                        html.Hr(style={'border-color':'#cb1828'}),
                         html.Div(id='top',className='row',children = layout_block[:2]),
                         html.Div(id='middle',className='row',children=layout_block[-2:]),
                         html.Div(id='bottom',className='row',children=[
@@ -66,7 +72,7 @@ layout = html.Div(id='skew-page',style={'marginLeft':25,'marginRight':25},childr
                         html.Div(id='the-skew-data',style={'display':'none'}),
                         dcc.Interval(
                             id='skew-interval-component',
-                            interval=1200*1000, # in milliseconds= 2 minutes
+                            interval=120*1000, # in milliseconds= 2 minutes
                             n_intervals=0
                             ), 
                         ]
@@ -97,6 +103,7 @@ def generate_table(data,exp,max_rows=25):
         },
         style_cell={'maxWidth':30,'textAlign':'center'},
         style_header= {'backgroundColor':'lightgrey','fontWeight':'bold'},
+        style_data_conditional=[{ 'if': {'row_index':'odd'},'backgroundColor':'rgb(242,242,242)'}],
         merge_duplicate_headers=True
     )
 
@@ -129,12 +136,11 @@ def skewplot(data,exp):
     return dcc.Graph(figure=go.Figure(data=[bid,mid,fit,ask],layout=layout))
 
 @app.callback([Output('the-skew-data','children'),Output('last-skew-update','children')],
-            [Input('skew-interval-component','n_intervals')])
-def update_data(n):
-    print('updating',dt.datetime.now())
-    data =  get_data()
+            [Input('skew-interval-component','n_intervals'),
+            Input('choose_ccy','value')])
+def update_data(n,ccy):
+    data =  get_data(ccy)
     results = json.dumps([df.to_json(date_format='iso',orient='split') for df in data])
-    print('finished updating', dt.datetime.now())
     return results , 'Last update:' + 20* ' '  +  '{}'.format(dt.datetime.now().strftime("%Y-%m-%d  %H:%M"))
 
 output_ids =['skew-dd{}'.format(i) for i in range(1,5)]
