@@ -3,10 +3,11 @@ import dash_html_components as html
 from dash.dependencies import Input, Output
 
 from app import app
-from apps import hvg, skew, pricer, order_book, futures ,hiv, spreads
+from apps import hvg, skew, pricer, order_book, futures ,hiv, spreads,d1_board
 
-style={'color':'#808285','padding':'10px 15px','font-size':'20',
+style={'color':'#808285','padding':'10px 15px','font-size':'20px',
                                 'text-align':'center','display':'inline-block','text-decoration':'None','marginRight':'7px'}
+
 nav_menu = html.Div(style={'margin-bottom':'1px'},children=[
                     html.A('HVG', href='/apps/hvg',style=style,id='hvg-link'),
                     html.A('Skew', href='/apps/skew',style= style,id='skew-link'),
@@ -14,6 +15,7 @@ nav_menu = html.Div(style={'margin-bottom':'1px'},children=[
                     html.A('Pricer', href='/apps/pricer',style=style,id='pricer-link'),
                     html.A('Order Book', href='/apps/order_book',style=style,id='ob-link'),
                     html.A('Futures', href='/apps/futures',style=style,id='fut-link'),
+                    html.A('Delta One', href='/apps/d1_board',style=style,id='d1-link'),
                     html.A('Spreads', href='/apps/spreads',style=style,id='spr-link')
                     ],
                     )
@@ -47,6 +49,9 @@ def display_page(pathname):
     elif pathname == '/apps/futures':
         app.title = futures.title
         return futures.layout
+    elif pathname == '/apps/d1_board':
+        app.title = d1_board.title
+        return d1_board.layout
     elif pathname == '/apps/spreads':
         app.title = spreads.title
         return spreads.layout

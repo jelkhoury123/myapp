@@ -72,7 +72,7 @@ layout = html.Div(id='skew-page',style={'marginLeft':25,'marginRight':25},childr
                         html.Div(id='the-skew-data',style={'display':'none'}),
                         dcc.Interval(
                             id='skew-interval-component',
-                            interval=120*1000, # in milliseconds= 2 minutes
+                            interval=60*1000, # in milliseconds= 1 minutes
                             n_intervals=0
                             ), 
                         ]

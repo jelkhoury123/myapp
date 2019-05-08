@@ -16,10 +16,12 @@ import datetime as dt
 
 import sys
 sys.path.append('..') # add parent directory to the path to import app
+import deribit_api3 as my_deribit
+from requests.auth import HTTPBasicAuth
 
 from app import app  # app is the main app which will be run on the server in index.py
 
-# If websocket use diginex.ccxt library and reduce update freq frm 7 to 5 secs
+# If websocket use diginex.ccxt library and reduce update interval from 7 to 5 secs
 
 ENABLE_WEBSOCKET_SUPPORT = False
 refresh_rate = 5 if ENABLE_WEBSOCKET_SUPPORT else 7
@@ -35,6 +37,8 @@ exchanges =  deriv_exchanges
 
 api_keys = {'deribit':'4v58Wk2hhiG9B','bitmex':'DM55KFt84AfdjJiyNjDBk_km'}
 api_secrets = {'deribit':'QLXLOZCOHAEQ6XV247KEXAKPX43GZLT4','bitmex':'jPDWiZcKuXJtVpajawENQiBzCKO2U885i3TWU9WIihBBUZgc'}
+
+auth = HTTPBasicAuth(api_keys['deribit'], api_secrets['deribit'])
 
 exch_dict={}
 for x in exchanges:
@@ -101,6 +105,11 @@ def get_order_books(ins,ex):
     '''
     order_books = {key: value.fetch_order_book(ins,limit=2000,
                         params={'full':1,'level':3,'limit_bids':0,'limit_asks':0,'type':'both'}) for key,value in ex.items() }
+    try:
+        order_books['deribit']=my_deribit.get_order_book(ins,100)
+    except:
+        pass
+
     if 'deribit' in order_books and 'BTC' in ins:
         bids_df = pd.DataFrame(order_books['deribit']['bids'])
         asks_df = pd.DataFrame(order_books['deribit']['asks'])
@@ -338,18 +347,22 @@ def get_open_orders():
     return oo
 
 def get_closed_orders(start):
-    deribit_closed_orders = []
-    for coin in deribit_d1_ins:
-        for symbol in deribit_d1_ins[coin]:
-            orders = deribit.fetch_closed_orders(symbol)
-            deribit_closed_orders+= orders
-    for order in deribit_closed_orders:
-        order['ex']='deribit'   
+       
+    d_eth_closed = pd.DataFrame(my_deribit.get_order_history_by_currency(auth,'ETH',include_old='true').json()['result'])
+    d_btc_closed = pd.DataFrame(my_deribit.get_order_history_by_currency(auth,'BTC',include_old='true').json()['result'])
+    d_closed = pd.concat([d_btc_closed,d_eth_closed],sort=True)
+    dcolumns = {'id':'order_id','type':'order_type','symbol':'instrument_name','side':'direction',
+          'amount':'amount','price':'price','average':'average_price','filled':'filled_amount','timestamp':'creation_timestamp'}
+    d_closed=d_closed[dcolumns.values()]
+    d_closed.columns=dcolumns.keys()
+    d_closed['ex']='deribit'
+
+
     bitmex_closed_orders=bitmex.fetch_closed_orders()
     for order in bitmex_closed_orders:
         order['ex']='bitmex'
 
-    closed_orders = deribit_closed_orders + bitmex_closed_orders
+    closed_orders =  bitmex_closed_orders
 
     for order in closed_orders:
         order.pop('info')
@@ -357,18 +370,23 @@ def get_closed_orders(start):
     if len(closed_orders) > 0:
         closed_orders = pd.DataFrame(closed_orders).sort_values(by=['timestamp'],ascending=False)
         closed_orders = closed_orders[closed_orders['timestamp']>start]
-        columns = ['id','type','symbol','side','amount','price','average','filled','ex']
+        columns = ['id','type','symbol','side','amount','price','average','filled','timestamp','ex']
         co=closed_orders[columns].copy()
     else: 
-        columns = ['id','type','symbol','side','price','price','average','filled','ex']
+        columns = ['id','type','symbol','side','price','price','average','filled','timestamp','ex']
         co= pd.DataFrame(columns=columns)
-    return co
+    closed_df = pd.concat([co,d_closed] )
+    closed_df = closed_df.sort_values(by='timestamp',ascending = False)
+    return closed_df[closed_df['timestamp']>start]
 
 def get_balances():
     deribit_balance=deribit.fetch_balance()
-    bitmex_balance=bitmex.fetch_balance()
+    deribit_balance['total']['ETH'] = my_deribit.get_account_summary(auth,'ETH','true').json()['result']['balance']
+    deribit_balance['free']['ETH'] = my_deribit.get_account_summary(auth,'ETH','true').json()['result']['available_funds']
+    deribit_balance['used']['ETH'] = round(deribit_balance['total']['ETH'] - deribit_balance['free']['ETH'],4)
     d_balance={key:deribit_balance[key] for key in ['free','used','total']}
     d_balance['exc']='deribit'
+    bitmex_balance=bitmex.fetch_balance()
     b_balance={key:bitmex_balance[key] for key in ['free','used','total']}
     b_balance['exc']='bitmex'
     b=pd.concat([pd.DataFrame(b_balance),pd.DataFrame(d_balance)])
@@ -408,14 +426,15 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
                                             html.Div(className='row',children=[
                                             html.Div(className='three columns',children =[html.H6('Cutoff % :')]),
                                             html.Div(className='three columns',style={'width' :'50%','align':'right'},children =[
-                                            dcc.Slider(id='fut-cutoff',
+                                                dcc.Slider(id='fut-cutoff',
                                                     min=.05,max=.3,step=.05,value=.1,
                                                     marks={round(j,2): str(round(j,2)) for j in list(np.arange(.05,.35,.05))})]),
                                             ]),
                                             html.Div(className='row',children=[
                                             html.Div(className='three columns',children =[html.H6('Price Agg (bps):')]),
-                                            html.Div(className='three columns',style={'width' :'50%','align':'right'},children =[dcc.Slider(id='fut-agg-level',
-                                                                                marks = {i:10**(i-2) for i in range(0,5)},
+                                            html.Div(className='three columns',style={'width' :'50%','align':'right'},children =[
+                                                dcc.Slider(id='fut-agg-level',
+                                                    marks = {i:10**(i-2) for i in range(0,5)},
                                                                                 max = 4,
                                                                                 value = 2,
                                                                                 step = 1)]),
@@ -437,7 +456,9 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
                                                 html.Hr(style={'border-color':'#cb1828'}),
                                                 html.Div(children=[dash_table.DataTable(id='fut-order-table',
                                                 columns=[{'id':'from_mid','name':'From Mid','type':'numeric','format':FormatTemplate.percentage(4).sign(Sign.positive)},
-                                                {'id':'price','name':'Price'},{'id':'size','name':'Size'},{'id':'cum_size','name': 'Size Total'},
+                                                {'id':'price','name':'Price','format':Format(precision=2,scheme=Scheme.fixed,)},
+                                                {'id':'size','name':'Size'},
+                                                {'id':'cum_size','name': 'Size Total'},
                                                 {'id':'size_$','name':'Size $','type':'numeric','format':FormatTemplate.money(0)},
                                                 {'id':'cum_size_$','name':'Size Total $','type':'numeric','format':FormatTemplate.money(0)},
                                                 {'id':'average_fill','name':'Averge Fill'},{'id':'exc','name':'Exchange'},
@@ -607,8 +628,10 @@ def update_page(order_books,base,ins,exchanges,x_scale,y_scale,cutoff,step):
     depth_plot = plot_depth(order_books,ins,exchanges,relative,currency,cutoff)
     # order table columns
     r = int(np.ceil(-np.log(step)/np.log(10)))-2
-    columns_ob=[{'id':'from_mid','name':'From Mid','type':'numeric','format':FormatTemplate.percentage(4).sign(Sign.positive)},
-                {'id':'price','name':'Price'},{'id':'size','name':'Size'},{'id':'cum_size','name': 'Size Total'},
+    columns_ob=[{'id':'from_mid','name':'From Mid','type':'numeric','format':FormatTemplate.percentage(r).sign(Sign.positive)},
+                {'id':'price','name':'Price','format':Format(precision=2,scheme=Scheme.fixed,)},
+                {'id':'size','name':'Size'}
+                ,{'id':'cum_size','name': 'Size Total'},
                 {'id':'size_$','name':'Size $','type':'numeric','format':FormatTemplate.money(0)},
                 {'id':'cum_size_$','name':'Size Total $','type':'numeric','format':FormatTemplate.money(0)},
                 {'id':'average_fill','name':'Averge Fill'},{'id':'exc','name':'Exchange'},
@@ -718,7 +741,7 @@ def update_closed(interval):
     midnight = pd.to_datetime(str(year)+'-'+str(month)+'-'+str(day)).timestamp()*10**3
     co = get_closed_orders(midnight)
     data = co.to_dict('rows')
-    names=['Id','Type','Ins','B/S','Qty','Price','Average','Filled','Exc']
+    names=['Id','Type','Ins','B/S','Qty','Price','Average','Filled','Time','Exc']
     columns =[{'id':id,'name':name} for id,name in zip(co.columns,names)]
     columns[0]['hidden'] = True
     return data,columns
@@ -726,7 +749,8 @@ def update_closed(interval):
 @app.callback(Output('balances','children'),
             [Input('fut-interval-component','n_intervals')])
 def update_balance(interval):
-    b = get_balances()
+    b = get_balances().reset_index()
+    b.columns=['Ccy',*b.columns[1:]]
     return dash_table.DataTable(
                 data=b.to_dict('rows'),
                 columns=[{'id': c,'name':c} for c in b.columns],
