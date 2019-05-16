@@ -3,7 +3,7 @@ import dash_html_components as html
 from dash.dependencies import Input, Output
 
 from app import app
-from apps import hvg, skew, pricer, order_book, futures ,hiv, spreads,d1_board
+from apps import hvg, skew, pricer, spot, futures ,hiv, spreads,d1_board
 
 style={'color':'#808285','padding':'10px 15px','font-size':'20px',
                                 'text-align':'center','display':'inline-block','text-decoration':'None','marginRight':'7px'}
@@ -13,7 +13,7 @@ nav_menu = html.Div(style={'margin-bottom':'1px'},children=[
                     html.A('Skew', href='/apps/skew',style= style,id='skew-link'),
                     html.A('HIV', href='/apps/hiv',style=style,id='hiv-link'),
                     html.A('Pricer', href='/apps/pricer',style=style,id='pricer-link'),
-                    html.A('Order Book', href='/apps/order_book',style=style,id='ob-link'),
+                    html.A('Spot', href='/apps/spot',style=style,id='spot-link'),
                     html.A('Futures', href='/apps/futures',style=style,id='fut-link'),
                     html.A('Delta One', href='/apps/d1_board',style=style,id='d1-link'),
                     html.A('Spreads', href='/apps/spreads',style=style,id='spr-link')
@@ -22,10 +22,12 @@ nav_menu = html.Div(style={'margin-bottom':'1px'},children=[
 app.title = 'Home'
 app.layout = html.Div(style={'margin-bottom':'2px'},children=[
     dcc.Location(id='url',refresh=False),
-    html.Div(className='row',children=[nav_menu, html.Hr(style={'border-color':'#cb1828'})],
+    html.Div(className='row',children=[nav_menu],
     style={'background-image':'url("/assets/diginex_inline_logo.svg")',
-    'background-repeat': 'no-repeat','background-position': '98% 18%','background-size': '300px 30px',}),
-    html.Div(id = 'page-content')
+    'background-repeat': 'no-repeat','background-position': '98% 18%','background-size': '300px 30px',
+    'height':'5%','top':'0','width':'100%','position':'fixed','zIndex':9999,'opacity':0.9,
+    'background-color':'#FFFFFF','border-bottom':'1px solid #cb1828'}),
+    html.Div(id = 'page-content',style={'margin-top':'5%','zIndex':-1})
 ])
 
 @app.callback(Output('page-content', 'children'),
@@ -43,9 +45,9 @@ def display_page(pathname):
     elif pathname == '/apps/pricer':
         app.title = pricer.title
         return pricer.layout
-    elif pathname == '/apps/order_book':
-        app.title = order_book.title
-        return order_book.layout
+    elif pathname == '/apps/spot':
+        app.title = spot.title
+        return spot.layout
     elif pathname == '/apps/futures':
         app.title = futures.title
         return futures.layout
@@ -62,8 +64,4 @@ def display_page(pathname):
                         style={'height':'100%','width':'100%'})
 
 if __name__ == '__main__':
-    app.run_server(debug=True,threaded = True)
-
-'''
-'background-color':'#cdccce',
-'''
+    app.run_server(threaded = True,debug = True)

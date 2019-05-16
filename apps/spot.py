@@ -315,7 +315,7 @@ layout = html.Div(style={'marginLeft':25,'marginRight':25},
                                                     html.Div(className='row',children=[
                                                     html.Div(className='three columns',children =[html.H6('Price Agg (bps):')]),
                                                     html.Div(className='three columns',style={'width' :'50%','align':'right'},children =[dcc.Slider(id='agg-level',
-                                                                                        marks = {i:10**(i-2) for i in range(0,5)},
+                                                                                        marks = {i:str(10**(i-2)) for i in range(0,5)},
                                                                                         max = 4,
                                                                                         value = 3,
                                                                                         step = 1)]),
@@ -384,15 +384,15 @@ def update_data(pair,ex,n):
             Input('x-scale','value'),Input('y-scale','value'),
             Input('cutoff','value'),Input('agg-level','value')])
 def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step):
-    #load data
+    # load data
     step = 10**(step-2)/10000
     relative = x_scale == 'Relative'
     currency = y_scale == 'Currency'
     order_books = json.loads(order_books)[0]
     order_books= {key:order_books[key] for key in order_books if key in exchanges}
-    #plot book
+    # plot book
     book_plot = plot_book(order_books,pair,exchanges,relative,currency,cutoff)
-    #plot depth
+    # plot depth
     depth_plot = plot_depth(order_books,pair,exchanges,relative,currency,cutoff)
     # order table
     df =  build_book(order_books,pair,exchanges,cutoff,step)
@@ -406,17 +406,20 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step):
     df_all=pd.concat([df_asks.sort_values(by='price',ascending=False),df_bids]).rename_axis('from_mid')
     rounding = [int(np.ceil(-np.log(mid*step)/np.log(10)))+1]
     r = int(np.ceil(-np.log(step)/np.log(10)))-2
-    decimals=pd.Series(rounding+[1]*4+rounding+[1]*2,index=df_all.columns)
-    df_all=df_all.round(decimals).reset_index()
+    #decimals=pd.Series(rounding+[1]*4+rounding+[1]*2,index=df_all.columns)
+    df_all=df_all.reset_index()
     df_all['from_mid'] = (df_all['from_mid']-1)
     table = dash_table.DataTable(
         data=df_all.to_dict('rows'),
-        columns=[{'id':'from_mid','name':'From Mid','type':'numeric','format':FormatTemplate.percentage(r)},
-        {'id':'price','name':'Price'},{'id':'size','name':'Size'},{'id':'cum_size','name': 'Size Total'},
-        {'id':'size_$','name':'Size $','type':'numeric','format':FormatTemplate.money(0)},
-        {'id':'cum_size_$','name':'Size Total $','type':'numeric','format':FormatTemplate.money(0)},
-        {'id':'average_fill','name':'Averge Fill'},{'id':'exc','name':'Exchange'},
-        {'id':'side','name':'side','hidden':True}],
+        columns=[{'id':'from_mid','name':'From Mid','type':'numeric','format':FormatTemplate.percentage(r).sign(Sign.positive)},
+                {'id':'price','name':'Price','type':'numeric','format':Format(precision=rounding[0],scheme=Scheme.fixed)},
+                {'id':'size','name':'Size','type':'numeric','format':Format(precision=2,scheme=Scheme.fixed)},
+                {'id':'cum_size','name': 'Size Total','type':'numeric','format':Format(precision=2,scheme=Scheme.fixed)},
+                {'id':'size_$','name':'Size $','type':'numeric','format':FormatTemplate.money(0)},
+                {'id':'cum_size_$','name':'Size Total $','type':'numeric','format':FormatTemplate.money(0)},
+                {'id':'average_fill','name':'Averge Fill','type':'numeric','format':Format(precision=rounding[0],scheme=Scheme.fixed)},
+                {'id':'exc','name':'Exchange'},
+                {'id':'side','name':'side','hidden':True}],
         style_table={'border': 'thin lightgrey solid'},
         style_header={'backgroundColor':'lightgrey','fontWeight':'bold'},
         style_cell={'textAlign':'center','width':'12%'},
@@ -440,7 +443,7 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step):
         ],
         style_as_list_view=True
     )
-    
+    # Liquidity tables
     try:
         liq_dfs = [df.round(4) for df in get_liq_params(df,pair,step)]
         liq_tables = [dash_table.DataTable(

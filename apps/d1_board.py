@@ -269,9 +269,9 @@ def get_charts(data, cell, pair, tab_data = None):
                     prem_traces.append( go.Scatter( x = time, y = prem, name = i, line = dict(width = 1), mode = 'lines',) )
 
     return ({'data': last_traces,
-             'layout': { 'margin': {'t': 30, 'b': 50, 'l': 70, 'r': 30, }, 'height': 300, 'width': 600, 'title': pair+' - Last Price', 'legend': dict(orientation='h'), 'xaxis': dict(showline = True), 'yaxis': dict(showline = True) } },
+             'layout': { 'margin': {'t': 30, 'b': 50, 'l': 70, 'r': 30, }, 'height': 300, 'width': 600, 'title': pair+' - Last Price', 'legend': dict(orientation='h'), 'xaxis': dict(showline = True), 'yaxis': dict(showline = True) ,'uirevision':str(cell)} },
             {'data': prem_traces,
-             'layout': { 'margin': {'t': 30, 'b': 50, 'l': 50, 'r': 30, }, 'height': 300, 'width': 600, 'title': title, 'legend': dict(orientation='h'), 'xaxis': dict(showline = True), 'yaxis': dict(showline = True) } }, )
+             'layout': { 'margin': {'t': 30, 'b': 50, 'l': 50, 'r': 30, }, 'height': 300, 'width': 600, 'title': title, 'legend': dict(orientation='h'), 'xaxis': dict(showline = True), 'yaxis': dict(showline = True) ,'uirevision':str(cell)} }, )
 
 
 #----------------------------------------------------------------------------------------------#
