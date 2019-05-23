@@ -24,7 +24,7 @@ app.layout = html.Div(style={'margin-bottom':'2px'},children=[
     dcc.Location(id='url',refresh=False),
     html.Div(className='row',children=[nav_menu],
     style={'background-image':'url("/assets/diginex_inline_logo.svg")',
-    'background-repeat': 'no-repeat','background-position': '98% 18%','background-size': '300px 30px',
+    'background-repeat': 'no-repeat','background-position': '98% 35%','background-size': '300px 30px',
     'height':'5%','top':'0','width':'100%','position':'fixed','zIndex':9999,'opacity':0.9,
     'background-color':'#FFFFFF','border-bottom':'1px solid #cb1828'}),
     html.Div(id = 'page-content',style={'margin-top':'5%','zIndex':-1})

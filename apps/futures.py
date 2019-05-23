@@ -13,7 +13,7 @@ import numpy as np
 import itertools
 import json
 import datetime as dt 
-
+import os
 import sys
 sys.path.append('..') # add parent directory to the path to import app
 import deribit_api3 as my_deribit
@@ -35,8 +35,8 @@ deriv_exchanges =['deribit','bitmex']
 
 exchanges =  deriv_exchanges 
 
-api_keys = {}
-api_secrets = {}
+api_keys = json.loads(os.environ.get('api_keys'))
+api_secrets = json.loads(os.environ.get('api_secrets'))
 
 auth = HTTPBasicAuth(api_keys['deribit'], api_secrets['deribit'])
 
@@ -51,40 +51,45 @@ deribit = exch_dict['deribit']
 bitmex = exch_dict['bitmex']
 
 Xpto_main = ['BTC','ETH']
+#Alt coins
 Xpto_alt = ['ADA','BCH','EOS','LTC','TRX','XRP']
+#Symbols
 Xpto_sym = {'BTC':'฿','ETH':'⧫','ADA':'ADA','BCH':'BCH','EOS':'EOS','LTC':'LTC','TRX':'TRX','XRP':'XRP'}
 
 def get_d1_instruments():
     '''
-    returns a dictionary with keys deribit and bitmex
-    each of which is in turn a dictionary with keys: BTC ETH and values: list containing Futures and Swaps traded on base 
-    and not expired
+    returns a tuple of 
+    1. a dictionary with keys deribit and bitmex ...
+        each of which is in turn a dictionary with keys: base BTC ETH ALT
+        and values: a list containing Futures and Swaps traded on base and not expired
+    2. a dictionary {ins:True if inverse instrument}
+    3. a dictionary {ins:tick size}
     '''
     all_ins={}
     inversed={}
     tick_sizes={}
     for exc,exc_obj in exch_dict.items():
         all_ins[exc]={}
-        for base in Xpto_main+Xpto_alt:
+        for base in Xpto_main + Xpto_alt:
             base_list=[]
             for ins in getattr(exc_obj,'markets'):
                 market = getattr(exc_obj,'markets')[ins]
-                if market['type'] in ('future','swap') and market['base']==base and not ins.startswith('.') and '_' not in ins:
+                if market['type'] in ('future','swap') and market['base'] == base and not ins.startswith('.') and '_' not in ins:
                     if exc == 'bitmex':
                         expiry = market['info']['expiry']
                         if expiry is None:
                             base_list.append(ins)
-                            inversed[ins]=True if market['info']['positionCurrency']=='USD' or market['info']['positionCurrency']=='' else False 
+                            inversed[ins] = True if market['info']['positionCurrency'] in ('USD','') else False 
                             tick_sizes[ins]=market['info']['tickSize']
                         else:
                             dt_expiry = dt.datetime.strptime(expiry,"%Y-%m-%dT%H:%M:%S.%fZ")
                             if dt_expiry > dt.datetime.now():
                                 base_list.append(ins)
-                                inversed[ins]=True if market['info']['positionCurrency']=='USD' or market['info']['positionCurrency']=='' else False
+                                inversed[ins]=True if market['info']['positionCurrency'] in ('USD','') else False
                                 tick_sizes[ins]=market['info']['tickSize']
                     else:
                         base_list.append(ins)
-                        inversed[ins]=True if 'positionCurrency' in market['info'].keys() and len(base_list)!=0 else True
+                        inversed[ins] = True 
                         tick_sizes[ins]=market['info']['tickSize']
             if len(base_list)!=0 and base in Xpto_main:
                 all_ins[exc][base] = base_list
@@ -99,26 +104,28 @@ deribit_d1_ins , bitmex_d1_ins = instruments['deribit'], instruments['bitmex']
 
 def get_exchanges_for_ins(ins):
     '''input: an instrument 
-    output: a dictionary of ccxt exchange objects of the exchanges listing the instrument
+        output: a dictionary of ccxt exchange objects were the instrument is listed
     '''
     return {x:exch_dict[x] for x in exch_dict if ins in list(exch_dict[x].load_markets().keys())}
 
 def get_ins_for_exchange(ex):
     '''input: an exchange
-    output: a list of instruments '''
+    output: a list of instruments traded on the exchange'''
     d={}
     exec('d[ex]=ccxt.{}()'.format(ex))
     d[ex].load_markets()
     return d[ex].symbols
 
 def get_order_books(ins,ex):
-    '''ins is the instrument string ,'BTC-PERPETUAL'...
+    '''ins is the instrument string example 'BTC-PERPETUAL',
+        ex is a dictionary of ccxt objects where ins is traded
         returns a dictionary of order books for the instrument
-        We call order book on every exchange the ins is trading and 
-        Return a dictionary {ex:order_book}
+        We call order book on every exchange where the ins is trading and 
+        Return a dictionary {exchange:order_book} where order_book is a dictionary :
+        {'bids': [[price,quantity]],'asks':[[price,quantity]]}
         Deribit needs a 10 multiplier 
     '''
-    order_books = {key: value.fetch_order_book(ins,limit=2000,
+    order_books = {key: value.fetch_order_book(ins,limit=500,
                         params={'full':1,'level':3,'limit_bids':0,'limit_asks':0,'type':'both'}) for key,value in ex.items() }
     try:
         order_books['deribit']=my_deribit.get_order_book(ins,500)
@@ -135,8 +142,9 @@ def get_order_books(ins,ex):
     return order_books
 
 def aggregate_order_books(dict_of_order_books):
-    '''dict_of_order_books is a dict of ccxt like order_books returned by order_books with ex name added
-        retuns a ccxt like dictionary order book sorted by prices (add exc name on every bid and ask)
+    '''dict_of_order_books is a dict of ccxt like order_books returned by get_order_books with ex name added
+        retuns a ccxt like dictionary order book sorted by prices (add exc name on every bid and ask):
+        {'bids':[[price,quantity,exchange]],'asks':[[price,quantity,exchange]]}
     '''
     agg_dict_order_book = {}
     bids = []
@@ -152,12 +160,19 @@ def aggregate_order_books(dict_of_order_books):
     return agg_dict_order_book
 
 def normalize_order_book(ins,order_book, cutoff = 0.1, step = 0.001):
-    '''order_book is a dictionary with keys bids asks timestamp datetime ...
-    where bids is a list of list [[bid,bid_size]] and 
-    asks is a list of list [[ask,ask_size]]
-    this is returned by ccxt.'exchange'.fetch_order_book()
+
+    '''
+    ins is needed to determine if inverse
+    order_book is a dictionary with keys bids asks timestamp datetime ...
+    where bids is a list of list [[bid,bid_size,exchange]] and 
+    asks is a list of list [[ask,ask_size,exchange]]
+    this is returned by aggregate_order_books
     returns a dataframe with columns [ask, ask_size, ask_size_$, cum_ask_size_$, bid_, bid_size, bid_size_$, cum_bid_size_$]
-    and an index of shape np.linspace(1 - cutoff,1 + cutoff ,step =.001 ~ 10 bps)  
+    horizontal stack
+    and an index of shape np.linspace(1 - cutoff,1 + cutoff ,step =.001 ~ 10 bps)
+    cutoff % depth around mid
+    step : aggregation level of prices
+
     '''
     try:
         rounding = int(np.ceil(-np.log(step)/np.log(10)))
@@ -192,6 +207,7 @@ def normalize_order_book(ins,order_book, cutoff = 0.1, step = 0.001):
         bid_side['cum_bid_size_$'] = bid_side['bid_size_$'].cumsum()
         ask_side['ask_size_$'] = ask_side['ask_size']*ask_side['ask']
         ask_side['cum_ask_size_$'] = ask_side['ask_size_$'].cumsum()
+
     normalized_bids = pd.DataFrame(bid_side.groupby('bid%',sort=False).mean()['bid'])
     normalized_bids.columns = ['bid']
     normalized_bids['bid_size'] = bid_side.groupby('bid%',sort=False).sum()['bid_size']
@@ -216,6 +232,24 @@ def build_book(order_books,ins,exchanges,cutoff=.1,step=0.001):
         returns a dataframe
     '''
     return normalize_order_book(ins,aggregate_order_books({key:order_books[key] for key in exchanges}),cutoff,step)
+
+def build_stack_book(normalized_order_book,step=0.001):
+    ''' gets order books aggreagtes them then normalizes
+        returns a vertically stacked dataframe e.g. bids below asks
+    '''
+    df = normalized_order_book
+    df_bids = df[[i for i in df.columns if 'bid' in i]].dropna().iloc[:13]
+    df_bids['side'] = 'bid'
+    df_bids.columns=['price','size','cum_size','size_$','cum_size_$','average_fill','exc','side']
+    df_asks = df[[i for i in df.columns if 'ask' in i]].dropna().iloc[:13]
+    df_asks['side'] = 'ask'
+    df_asks.columns = ['price','size','cum_size','size_$','cum_size_$','average_fill','exc','side']
+    mid=(df_bids['price'].max() + df_asks['price'].min())/2
+    df_all=pd.concat([df_asks.sort_values(by='price',ascending=False),df_bids]).rename_axis('from_mid')
+    rounding = [int(np.ceil(-np.log(mid*step)/np.log(10)))+1]
+    df_all=df_all.round(rounding[0]).reset_index()
+    df_all['from_mid'] = (df_all['from_mid']-1)
+    return df_all
 
 def plot_book(order_books,ins, exc, relative=True, currency=True, cutoff=.1):
     ''' plots the order book as a v shape chart '''
@@ -331,7 +365,7 @@ def get_liq_params(normalized,pair,ins,step):
 
         arb = first_bid > first_ask
 
-    rounding = [int(np.ceil(-np.log(mid*step)/np.log(10)))+1]
+    rounding = [int(np.ceil(-np.log(mid*step)/np.log(10)))+1] if step !=0 else [8]
     result1 = pd.DataFrame([best_bid,best_ask,mid,spread,spread_pct/100,cross,cross_pct/100,arb_dollar,arb_size,arb_dollar/(arb_size*mid) if arb_size!=0 else 0],
     index=['bid','ask','mid','spread','spread%','cross','cross%','arb $','size arb','arb%']).T
     decimals = pd.Series(rounding * 4 +[6] +rounding +[6] + [0]*2 + [6],index=result1.columns)
@@ -430,7 +464,7 @@ def get_balances():
 
 title = 'Futures'
 
-layout = html.Div(style={'marginLeft':35,'marginRight':35},
+layout =  html.Div(style={'marginLeft':35,'marginRight':35},
                     children=[ 
                         html.Div(className='row',style={'margin-top':'2px'},children=[
                                         html.Div(className='three columns',
@@ -475,7 +509,7 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
                                             html.Div(className='three columns',children =[html.Label('Price Agg (bps):')]),
                                             html.Div(className='three columns',style={'width' :'50%','align':'right'},children =[
                                                 dcc.Slider(id='fut-agg-level',
-                                                    marks = {i:str(10**(i-2)) for i in range(0,5)},
+                                                    marks = {i:str(10**(i-2) if i != 0 else 0) for i in range(0,5)},
                                                                                 max = 4,
                                                                                 value = 3,
                                                                                 step = 1)]),
@@ -528,6 +562,11 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
                                                     style_header={'textAlign':'center','backgroundColor':'#DCDCDC','fontWeight':'bold'},
                                                     #style_as_list_view=True
                                                 )
+                                                ]),
+                                                html.Div( className = 'row', children = [
+                                                    html.P(id = 'fut-ob-last-timestamp', style = {'display':'inline-block','font-size':'1.2rem'}),
+                                                    html.P(children=' / ', style = {'display':'inline-block', 'margin':'0px 5px','font-size':'1.2rem'}),
+                                                    html.P(id = 'fut-ob-new-timestamp', children = dt.datetime.now().strftime('%X'), style = {'display':'inline-block','font-size':'1.2rem'}),
                                                 ]),
                                                 html.Hr(style={'border-color':'#cb1828'}),
                                                 html.H6('Liquidity Metrics'),
@@ -673,60 +712,72 @@ def update_time(n,order_books):
 @app.callback([Output('fut-order-book-chart','figure'),Output('fut-market-depth','figure'),
             Output('fut-order-table','data'),Output('fut-order-table','columns'),
             Output('fut-liquidity-table','children'),
-            Output('fut-depth-table','children'),Output('fut-stat-table','children')],
+            Output('fut-depth-table','children'),Output('fut-stat-table','children'),
+            Output('fut-ob-last-timestamp', 'children'), Output('fut-ob-new-timestamp', 'children')],
             [Input('the-fut-data','children'),Input('choose-base','value'),
             Input('fut-ins','value'),Input('fut-exchanges','children'),
             Input('fut-x-scale','value'),Input('fut-y-scale','value'),
-            Input('fut-cutoff','value'),Input('fut-agg-level','value')])
-def update_page(order_books,base,ins,exchanges,x_scale,y_scale,cutoff,step):
+            Input('fut-cutoff','value'),Input('fut-agg-level','value')],
+            [State('fut-ob-new-timestamp', 'children')],)
+def update_page(order_books,base,ins,exchanges,x_scale,y_scale,cutoff,step, last_update):
+
     #load data
-    step = 10**(step-2)/10000
+    step = 10**(step-2)/10000 if step !=0 else step
     relative = x_scale == 'Rel'
     currency = y_scale == 'Ccy'
     order_books = json.loads(order_books)[0]
     order_books= {key:order_books[key] for key in order_books if key in exchanges}
-    #plot book
+
+    # 1. Plot Book and Depth
     book_plot = plot_book(order_books,ins,exchanges,relative,currency,cutoff)
-    #plot depth
     depth_plot = plot_depth(order_books,ins,exchanges,relative,currency,cutoff)
+
     # order table data
     df =  build_book(order_books,ins,exchanges,cutoff,step)
+
     df_bids = df[[i for i in df.columns if 'bid' in i]].dropna().iloc[:13]
     df_bids['side'] = 'bid'
     df_bids.columns=['price','size','cum_size','size_$','cum_size_$','average_fill','exc','side']
+
     df_asks = df[[i for i in df.columns if 'ask' in i]].dropna().iloc[:13]
     df_asks['side'] = 'ask'
     df_asks.columns = ['price','size','cum_size','size_$','cum_size_$','average_fill','exc','side']
-    mid=(df_bids['price'].max() + df_asks['price'].min())/2
+    
     df_all=pd.concat([df_asks.sort_values(by='price',ascending=False),df_bids]).rename_axis('from_mid')
-    rounding = [int(np.ceil(-np.log(mid*step)/np.log(10)))+1]
-    df_all=df_all.round(rounding[0]).reset_index()
+    df_all=df_all.reset_index()
     df_all['from_mid'] = (df_all['from_mid']-1)
+
     data_ob = df_all.to_dict('rows')
-    # order table columns
-    r = int(np.ceil(-np.log(step)/np.log(10)))-2
+    ob_new_time = dt.datetime.now().strftime('%X')
+
+    # Get rounidng digits for the table
+    precision = len(str(ticks[ins]).split('.')[1]) if '.' in str(ticks[ins]) else int(str(ticks[ins]).split('e-')[1])
+    mid=(df_bids['price'].max() + df_asks['price'].min())/2
+    rounding = max(min(int(np.ceil(-np.log(mid*step)/np.log(10))), precision),0) if step !=0 else precision
+    r = int(np.ceil(-np.log(step)/np.log(10)))-2 if step !=0 else int(np.ceil(-np.log(10**-precision/mid)/np.log(10))-2)
+    
     base_sym = Xpto_sym[base] if base!='ALT' else Xpto_sym[ins[:3]]
     quote_sym = '$' if inversed[ins] else '฿'
     columns_ob=[{'id':'from_mid','name':'From Mid','type':'numeric','format':FormatTemplate.percentage(r).sign(Sign.positive)},
-                {'id':'price','name':'Price','type':'numeric','format':Format(precision=rounding[0],scheme=Scheme.fixed)},
+                {'id':'price','name':'Price','type':'numeric','format':Format(precision=rounding,scheme=Scheme.fixed)},
                 {'id':'size','name':'Size ({})'.format(base_sym),'type':'numeric','format':Format(precision=2,scheme=Scheme.fixed)},
-                {'id':'cum_size','name': 'Size Total ({})'.format(base_sym),'type':'numeric','format':Format(precision=2,scheme=Scheme.fixed)},
+                {'id':'cum_size','name': 'Total ({})'.format(base_sym),'type':'numeric','format':Format(precision=2,scheme=Scheme.fixed)},
                 {'id':'size_$','name':'Size ({})'.format(quote_sym),'type':'numeric',
                 'format':FormatTemplate.money(0) if inversed[ins] else Format(precision=2,scheme=Scheme.fixed,symbol=Symbol.yes,symbol_prefix=u'฿')},
-                {'id':'cum_size_$','name':'Size Total ({})'.format(quote_sym),'type':'numeric',
+                {'id':'cum_size_$','name':'Total ({})'.format(quote_sym),'type':'numeric',
                 'format':FormatTemplate.money(0) if inversed[ins] else Format(precision=2,scheme=Scheme.fixed,symbol=Symbol.yes,symbol_prefix=u'฿')},
                 {'id':'average_fill','name':'Averge Fill','type':'numeric',
-                'format':Format(precision=rounding[0],scheme=Scheme.fixed)},
+                'format':Format(precision=rounding,scheme=Scheme.fixed)},
                 {'id':'exc','name':'Exchange','hidden':True},
                 {'id':'side','name':'side','hidden':True}]
     try:
         pair = base+'/USD' if base!='ALT' else ins[:3]+'/USD'
         #liq_dfs = [df.round(4) for df in get_liq_params(df,pair,step)]
         liq_dfs = [df for df in get_liq_params(df,pair,ins,step)]
-        col_format = {'bid':Format(precision=rounding[0],scheme=Scheme.fixed),
-                      'ask':Format(precision=rounding[0],scheme=Scheme.fixed),
-                      'mid':Format(precision=rounding[0],scheme=Scheme.fixed),
-                      'spread':Format(precision=rounding[0],scheme=Scheme.fixed),
+        col_format = {'bid':Format(precision=rounding,scheme=Scheme.fixed),
+                      'ask':Format(precision=rounding,scheme=Scheme.fixed),
+                      'mid':Format(precision=rounding,scheme=Scheme.fixed),
+                      'spread':Format(precision=rounding,scheme=Scheme.fixed),
                       'spread%':FormatTemplate.percentage(2).sign(Sign.positive),
                       'cross%':FormatTemplate.percentage(2).sign(Sign.positive),
                       'arb%':FormatTemplate.percentage(2).sign(Sign.positive),
@@ -745,7 +796,7 @@ def update_page(order_books,base,ins,exchanges,x_scale,y_scale,cutoff,step):
     except:
         liq_tables=[0]*3
  
-    return (book_plot,depth_plot,data_ob,columns_ob) + tuple(liq_tables)
+    return (book_plot,depth_plot,data_ob,columns_ob) + tuple(liq_tables) + (last_update, ob_new_time)
 
 @app.callback(Output('fut-diplay-tick','children'),
                 [Input('fut-ins','value')],
@@ -754,17 +805,19 @@ def display_tick(ins):
     return 'Tick Size: {}'.format(ticks[ins])
 
 @app.callback(Output('fut-order-to-send','data'),
-            [Input('fut-order-table','active_cell'),Input('fut-ins','value')],
+            [Input('fut-order-table','active_cell'),Input('fut-ins','value'), Input('fut-agg-level','value')],
             [State('fut-order-table','data')])
-def update_order(active_cell,ins,data):
+def update_order(active_cell,ins,step,data):
+    step = 10**(step-2)/10000 if step !=0 else step
     data_df=pd.DataFrame(data)
     row = data_df.iloc[active_cell[0]]
     columns = ['B/S','Ins','Qty','Limit price','exc']
     order_df=pd.DataFrame(columns=columns)
     size = (row['cum_size_$'] if active_cell[1] == 5 else row['size_$']) if inversed[ins] else (row['cum_size'] if active_cell[1] == 3 else row['size'])
     order_df.loc[0]=['B' if row['side']=='bid' else 'S',ins,size,row['price'],row['exc']]
-    r=int(np.ceil(-np.log(ticks[ins])/np.log(10)))
-    order_df['Limit price'] = round(round(order_df['Limit price']/ticks[ins]) * ticks[ins],r)
+    precision = len(str(ticks[ins]).split('.')[1]) if '.' in str(ticks[ins]) else int(str(ticks[ins]).split('e-')[1])
+    rounding = max(min(int(np.ceil(-np.log(row['price']*step)/np.log(10))), precision),0) if step !=0 else precision
+    order_df['Limit price'] = round(round(order_df['Limit price']/ticks[ins]) * ticks[ins],rounding)
     return order_df.to_dict('row')
 
 @app.callback([Output('send-order','children'),Output('send-order','style')],
@@ -831,7 +884,8 @@ def update_closed(interval,go_back_date):
     go_back_date = go_back_date.split(' ')[0]
     from_this_date = dt.datetime.strptime(go_back_date, '%Y-%m-%d').timestamp()*10**3
     co = get_closed_orders(from_this_date)
-    co['timestamp']=pd.to_datetime((co['timestamp']/10**3).round(0), unit='s')
+    #co['timestamp']=pd.to_datetime((co['timestamp']/10**3).round(0), unit='s')
+    co['timestamp']=pd.to_datetime(co['timestamp']/1000, unit='s')
     co['timestamp']=co['timestamp'].dt.strftime('%d %b %H:%M:%S')
     data = co.to_dict('rows')
     names=['Id','Type','Ins','B/S','Qty','Price','Average','Filled','Time','Exc']

@@ -91,6 +91,9 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
                                     { 'name': 'Exchange', 'id': 'Exchange', 'hidden': 'True' }, ],
                         style_cell = { 'padding-left': '10px', 'padding-right': '10px', },
                         style_data_conditional = [ { 'if': { 'filter': '"% Prem." > num(0)' }, "color": "#008000", "fontWeight": "bold" }, { 'if': { 'filter': '"% Prem." < num(0)' }, "color": "#B22222", "fontWeight": "bold" }, ], ),
+                    html.P(id = 'd1-'+i+'-last-timestamp', style = {'display':'inline-block','font-size':'1.2rem'}),
+                    html.P(children=' / ', style = {'display':'inline-block', 'margin':'0px 5px','font-size':'1.2rem'}),
+                    html.P(id = 'd1-'+i+'-new-timestamp', style = {'display':'inline-block','font-size':'1.2rem'}, children = dt.now().strftime('%X')),
                     ], ),
                 # Chart - Last Price
                 html.Div( className = 'one-third column', style = {'margin-top': '10px', 'margin-right': '0px', 'margin-left': '50px'}, children = [
@@ -118,18 +121,23 @@ def process_data(n_intervals, history):
 
     history = pd.read_json(history, orient = 'split')
 
-    bmx_tickers = bmx.fetch_tickers()
-    bmx_last = pd.DataFrame(bmx_tickers)[history[history['exchange'] == 'bitmex'].index].loc['last']
+    bmx_ins = history[history['exchange'] == 'bitmex'].index
+    bmx_futs = [ins for ins in bmx_ins if '.' not in ins]
+    bmx_idx = [ins for ins in bmx_ins if '.' in ins]
+    bmx_tickers = pd.DataFrame(bmx.fetch_tickers())
+    bmx_futs_last = pd.DataFrame((bmx_tickers[bmx_futs].loc['bid']+bmx_tickers[bmx_futs].loc['ask'])/2, columns = ['mid'])
+    bmx_idx_last = pd.DataFrame(bmx_tickers[bmx_idx].loc['last']).rename(columns={'last':'mid'})
+    bmx_mid = pd.concat([bmx_futs_last, bmx_idx_last])
+
     dbt_btc = dbapi.get_summary_by_currency('BTC', 'future')
     dbt_eth = dbapi.get_summary_by_currency('ETH', 'future')
-    dbt_tickers = pd.concat([dbt_btc, dbt_eth])[['instrument_name', 'last', 'estimated_delivery_price']].set_index('instrument_name')
-    dbt_tickers.loc['.BTC',:] = dbt_tickers.loc['BTC-PERPETUAL', 'estimated_delivery_price']
-    dbt_tickers.loc['.ETH',:] = dbt_tickers.loc['ETH-PERPETUAL', 'estimated_delivery_price']
-    last = pd.DataFrame(pd.concat([bmx_last, dbt_tickers.sort_index()['last']]))
+    dbt_mid = pd.concat([dbt_btc, dbt_eth])[['instrument_name', 'ask_price', 'bid_price', 'estimated_delivery_price']].set_index('instrument_name')
+    dbt_mid['mid'] = (dbt_mid['ask_price'] + dbt_mid['ask_price'])/2
+    dbt_mid.loc['.BTC',:] = dbt_mid.loc['BTC-PERPETUAL', 'estimated_delivery_price']
+    dbt_mid.loc['.ETH',:] = dbt_mid.loc['ETH-PERPETUAL', 'estimated_delivery_price']
+
+    last = pd.DataFrame(pd.concat([bmx_mid, pd.DataFrame(dbt_mid['mid'])]))
     history[dt.now()] = last
-
-    #print(dt.now())
-
     dump_history = history.to_json(date_format = 'iso', orient = 'split')
 
     return dump_history
@@ -137,14 +145,18 @@ def process_data(n_intervals, history):
 
 # Get Tables
 @app.callback(
-    [Output('d1-BTCUSD_table', 'data'), Output('d1-ETHUSD_table', 'data'), Output('d1-ETHBTC_table', 'data'), Output('d1-ALTBTC_table', 'data')],
+    [Output('d1-BTCUSD_table', 'data'), Output('d1-ETHUSD_table', 'data'), Output('d1-ETHBTC_table', 'data'), Output('d1-ALTBTC_table', 'data'),
+     Output('d1-BTCUSD-last-timestamp', 'children'), Output('d1-ETHUSD-last-timestamp', 'children'), Output('d1-ETHBTC-last-timestamp', 'children'), Output('d1-ALTBTC-last-timestamp', 'children'),
+     Output('d1-BTCUSD-new-timestamp', 'children'), Output('d1-ETHUSD-new-timestamp', 'children'), Output('d1-ETHBTC-new-timestamp', 'children'), Output('d1-ALTBTC-new-timestamp', 'children'),],
     [Input('d1-refresh_rate', 'n_intervals')],
-    [State('d1-hidden_storage','children')]
+    [State('d1-hidden_storage','children'), State('d1-BTCUSD-new-timestamp', 'children'), State('d1-ETHUSD-new-timestamp', 'children'), State('d1-ETHBTC-new-timestamp', 'children'), State('d1-ALTBTC-new-timestamp', 'children')]
 )
-def show_table(n_intervals, history):
+def show_table(n_intervals, history, BTCUSD_last_timestamp, ETHUSD_last_timestamp, ETHBTC_last_timestamp, ALTBTC_last_timestamp):
 
     history = pd.read_json(history, orient = 'split')
     data = []
+    new_timestamps = []
+    last_timestamps = [BTCUSD_last_timestamp, ETHUSD_last_timestamp, ETHBTC_last_timestamp, ALTBTC_last_timestamp]
     alt_data = pd.DataFrame([])
     
     for pair in ['BTCUSD', 'ETHUSD', 'ETHBTC', 'BCHBTC', 'LTCBTC', 'XRPBTC', 'TRXBTC', 'EOSBTC', 'ADABTC']:
@@ -165,14 +177,16 @@ def show_table(n_intervals, history):
             table = table.reset_index()
             table.columns = ['Instr.', 'Last', 'Prem.', '% Prem.', 'An. Prem.', 'F. Cycles', 'Exchange']
             data.append(table.to_dict('rows'))
+            new_timestamps.append(dt.now().strftime('%X'))
         else:
             table = pd.DataFrame(table)
             alt_data = pd.concat([alt_data, table])
     alt_data = alt_data.reset_index()
     alt_data.columns = ['Instr.', 'Last', 'Prem.', '% Prem.', 'An. Prem.', 'F. Cycles', 'Exchange']
     data.append(alt_data.to_dict('rows'))
+    new_timestamps.append(dt.now().strftime('%X'))
 
-    return data
+    return data + last_timestamps + new_timestamps
 
 
 # BTCUSD
