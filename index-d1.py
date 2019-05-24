@@ -3,16 +3,12 @@ import dash_html_components as html
 from dash.dependencies import Input, Output
 
 from app import app
-from apps import hvg, skew, pricer, spot, futures ,hiv ,d1_board ,spreads
+from apps import spot, futures  ,d1_board ,spreads
 
 style={'color':'#808285','padding':'10px 15px','font-size':'20px',
                                 'text-align':'center','display':'inline-block','text-decoration':'None','marginRight':'7px'}
 
 nav_menu = html.Div(style={'margin-bottom':'1px'},children=[
-                    html.A('HVG', href='/apps/hvg',style=style,id='hvg-link'),
-                    html.A('Skew', href='/apps/skew',style= style,id='skew-link'),
-                    html.A('HIV', href='/apps/hiv',style=style,id='hiv-link'),
-                    html.A('Pricer', href='/apps/pricer',style=style,id='pricer-link'),
                     html.A('Spot', href='/apps/spot',style=style,id='spot-link'),
                     html.A('Futures', href='/apps/futures',style=style,id='fut-link'),
                     html.A('Delta One', href='/apps/d1_board',style=style,id='d1-link'),
@@ -33,19 +29,7 @@ app.layout = html.Div(style={'margin-bottom':'2px'},children=[
 @app.callback(Output('page-content', 'children'),
               [Input('url', 'pathname')])
 def display_page(pathname):
-    if pathname == '/apps/hvg':
-        app.title = hvg.title
-        return hvg.layout
-    elif pathname == '/apps/skew':
-        app.title = skew.title
-        return skew.layout
-    elif pathname == '/apps/hiv':
-        app.title = hiv.title
-        return hiv.layout
-    elif pathname == '/apps/pricer':
-        app.title = pricer.title
-        return pricer.layout
-    elif pathname == '/apps/spot':
+    if pathname == '/apps/spot':
         app.title = spot.title
         return spot.layout
     elif pathname == '/apps/futures':
@@ -64,4 +48,4 @@ def display_page(pathname):
                         style={'height':'100%','width':'100%'})
 
 if __name__ == '__main__':
-    app.run_server(threaded = True,debug = True)
+    app.run_server(threaded = True)

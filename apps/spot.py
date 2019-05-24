@@ -20,7 +20,7 @@ sys.path.append('..')
 from app import app
 
 ENABLE_WEBSOCKET_SUPPORT = False
-refresh_rate = 7 if ENABLE_WEBSOCKET_SUPPORT else 10
+refresh_rate = 3 if ENABLE_WEBSOCKET_SUPPORT else 6
 if ENABLE_WEBSOCKET_SUPPORT:
     import diginex.ccxt.websocket_support as ccxt
 else:
@@ -587,9 +587,9 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step,last_upda
     columns_ob=[{'id':'from_mid','name':'From Mid','type':'numeric','format':FormatTemplate.percentage(r).sign(Sign.positive)},
             {'id':'price','name':'Price','type':'numeric','format':Format(precision=rounding,scheme=Scheme.fixed)},
             {'id':'size','name':'Size ({})'.format(base_sym),'type':'numeric','format':Format(precision=2,scheme=Scheme.fixed)},
-            {'id':'cum_size','name': 'Size Total ({})'.format(base_sym),'type':'numeric','format':Format(precision=2,scheme=Scheme.fixed)},
+            {'id':'cum_size','name': 'Total ({})'.format(base_sym),'type':'numeric','format':Format(precision=2,scheme=Scheme.fixed)},
             {'id':'size_$','name':'Size ({})'.format(quote_sym),'type':'numeric','format':FormatTemplate.money(0)},
-            {'id':'cum_size_$','name':'Size Total ({})'.format(quote_sym),'type':'numeric','format':FormatTemplate.money(0)},
+            {'id':'cum_size_$','name':'Total ({})'.format(quote_sym),'type':'numeric','format':FormatTemplate.money(0)},
             {'id':'average_fill','name':'Averge Fill','type':'numeric','format':Format(precision=rounding,scheme=Scheme.fixed)},
             {'id':'exc','name':'Exchange'},
             {'id':'side','name':'side','hidden':True}]

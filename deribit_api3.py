@@ -5,6 +5,7 @@ from models import BSprice, BSgreeks, BSiv, otm, vvv, vvv_fitter
 import requests
 import datetime
 
+s=requests.Session()
 
 '''Deribit Rest API'''
 
@@ -13,123 +14,123 @@ import datetime
 
 def get_summary_by_currency(ccy,kind=None):
     payload={'currency':ccy,'kind':kind}
-    r = requests.get('https://deribit.com/api/v2/public/get_book_summary_by_currency',params=payload)
+    r = s.get('https://deribit.com/api/v2/public/get_book_summary_by_currency',params=payload)
     return pd.DataFrame((r.json())['result'])
 
 def get_summary_by_instrument(ins):
     payload={'instrument_name':ins}
-    r = requests.get('https://deribit.com/api/v2/public/get_book_summary_by_instrument',params=payload)
+    r = s.get('https://deribit.com/api/v2/public/get_book_summary_by_instrument',params=payload)
     return pd.DataFrame((r.json())['result'])
 
 def get_contract_size(ins):
     payload={'instrument_name':ins}
-    r = requests.get('https://deribit.com/api/v2/public/get_contract_size',params=payload)
+    r = s.get('https://deribit.com/api/v2/public/get_contract_size',params=payload)
     return pd.DataFrame([(r.json())['result']],index=[ins])
 
 def get_currencies():
-    r = requests.get('https://deribit.com/api/v2/public/get_currencies')
+    r = s.get('https://deribit.com/api/v2/public/get_currencies')
     return pd.DataFrame(r.json()['result'])
 
 def get_funding_chart_data(ins,length):
     payload={'instrument_name':ins}
-    r = requests.get('https://www.deribit.com/api/v2/public/get_funding_chart_data',params=payload)
+    r = s.get('https://www.deribit.com/api/v2/public/get_funding_chart_data',params=payload)
     return pd.DataFrame([(r.json())['result']],index=[ins])
 
 def get_historical_volatility(ccy):
     payload={'currency':ccy}
-    r = requests.get('https://www.deribit.com/api/v2/public/get_historical_volatility',params=payload)
+    r = s.get('https://www.deribit.com/api/v2/public/get_historical_volatility',params=payload)
     return pd.DataFrame(r.json()['result'])
 
 def get_index(ccy):
     payload={'currency':ccy}
-    r = requests.get('https://www.deribit.com/api/v2/public/get_index',params=payload)
+    r = s.get('https://www.deribit.com/api/v2/public/get_index',params=payload)
     return pd.DataFrame([r.json()['result']])
 
 def get_instruments(currency,kind=None,expired='false'):
     payload={'currency':currency,'kind':kind,'expired':expired}
-    r = requests.get('https://deribit.com/api/v2/public/get_instruments',params=payload)
+    r = s.get('https://deribit.com/api/v2/public/get_instruments',params=payload)
     return pd.DataFrame((r.json())['result'])
 
 def get_order_book(ins,depth=100):
     payload={'instrument_name':ins,'depth':depth}
-    r = requests.get('https://www.deribit.com/api/v2/public/get_order_book',params=payload)
-    bids = r.json()['result']['bids']
-    asks = r.json()['result']['asks']
+    r = s.get('https://www.deribit.com/api/v2/public/get_order_book',params=payload).json()
+    bids = r['result']['bids']
+    asks = r['result']['asks']
     return {'bids':bids,'asks':asks}
 
 def get_trade_volumes():
-    r = requests.get('https://www.deribit.com/api/v2/public/get_trade_volumes')
+    r = s.get('https://www.deribit.com/api/v2/public/get_trade_volumes')
     return pd.DataFrame(r.json()['result'])
 
 def ticker(ins):
     payload={'instrument_name':ins}
-    r = requests.get('https://www.deribit.com/api/v2/public/ticker',params=payload)
+    r = s.get('https://www.deribit.com/api/v2/public/ticker',params=payload)
     return pd.DataFrame([r.json()['result']],index=[ins])
 
 '''II -Trade Private API'''
 
 def buy(auth,ins,amount,price,params={}):
     payload = dict(instrument_name=ins,amount=amount,price=price,**params)
-    r = requests.get('https://www.deribit.com/api/v2/private/buy',params=payload,auth=auth)
+    r = s.get('https://www.deribit.com/api/v2/private/buy',params=payload,auth=auth)
     return r
 
 def sell(auth,ins,amount,price,params={}):
     payload = dict(instrument_name=ins,amount=amount,price=price,**params)
-    r = requests.get('https://www.deribit.com/api/v2/private/buy',params=payload,auth=auth)
+    r = s.get('https://www.deribit.com/api/v2/private/buy',params=payload,auth=auth)
     return r
 
 def edit(auth,order_id,amount,price,params={}):
     payload = dict(order_id=order_id,amount=amount,price=price,**params)
-    r = requests.get('https://www.deribit.com/api/v2/private/edit',params=payload,auth=auth)
+    r = s.get('https://www.deribit.com/api/v2/private/edit',params=payload,auth=auth)
     return r
 
 def cancel(auth,order_id):
     payload = dict(order_id=order_id)
-    r = requests.get('https://www.deribit.com/api/v2/private/cancel',params=payload,auth=auth)
+    r = s.get('https://www.deribit.com/api/v2/private/cancel',params=payload,auth=auth)
     return r
 
 def cancel_all(auth):
-    r = requests.get('https://www.deribit.com/api/v2/private/cancel_all',auth=auth)
+    r = s.get('https://www.deribit.com/api/v2/private/cancel_all',auth=auth)
     return r 
 
 def cancel_all_by_currency(auth,ccy,kind=None,type=None):
     payload= dict(currency=ccy,kind=kind,type=type)
-    r = requests.get('https://www.deribit.com/api/v2/private/cancel_all_by_currency',params=payload,auth=auth)
+    r = s.get('https://www.deribit.com/api/v2/private/cancel_all_by_currency',params=payload,auth=auth)
     return r 
 
 def cancel_all_by_instrument(auth,ins,type=None):
     payload= dict(instrument_name=ins,type=type)
-    r = requests.get('https://www.deribit.com/api/v2/private/cancel_all_by_instrument',params=payload,auth=auth)
+    r = s.get('https://www.deribit.com/api/v2/private/cancel_all_by_instrument',params=payload,auth=auth)
     return r 
 
 def close_position(auth,ins,price,type='limit'):
     payload= dict(instrument_name=ins,type=type,price=price)
-    r = requests.get('https://www.deribit.com/api/v2/private/close_position',params=payload,auth=auth)
+    r = s.get('https://www.deribit.com/api/v2/private/close_position',params=payload,auth=auth)
     return r
 
 def get_open_orders_by_currency(auth,ccy,kind=None,type=None):
     payload= dict(currency=ccy,kind=kind,type=type)
-    r = requests.get('https://www.deribit.com/api/v2/private/get_open_orders_by_currency',params=payload,auth=auth)
+    r = s.get('https://www.deribit.com/api/v2/private/get_open_orders_by_currency',params=payload,auth=auth)
     return r 
 
 def get_open_orders_by_instrument(auth,ins,type=None):
     payload= dict(instrument_name=ins,type=type)
-    r = requests.get('https://www.deribit.com/api/v2/private/get_open_orders_by_instrument',params=payload,auth=auth)
+    r = s.get('https://www.deribit.com/api/v2/private/get_open_orders_by_instrument',params=payload,auth=auth)
     return r
     
 def get_order_history_by_currency(auth,ccy,kind=None,count= 20,offset=0,include_old='false',include_unfilled='true'):
     payload= dict(currency=ccy,kind=kind,count= count,offset=offset,include_old=include_old,include_unfilled=include_unfilled)
-    r = requests.get('https://www.deribit.com/api/v2/private/get_order_history_by_currency',params=payload,auth=auth)
+    r = s.get('https://www.deribit.com/api/v2/private/get_order_history_by_currency',params=payload,auth=auth)
     return r 
 
 def get_order_history_by_instrument(auth,ins,count= 20,offset=0,include_old='false',include_unfilled='true'):
     payload= dict(instrument_name=ins,count= count,offset=offset,include_old=include_old,include_unfilled=include_unfilled)
-    r = requests.get('https://www.deribit.com/api/v2/private/get_order_history_by_instrument',params=payload,auth=auth)
+    r = s.get('https://www.deribit.com/api/v2/private/get_order_history_by_instrument',params=payload,auth=auth)
     return r 
 
 def get_account_summary(auth,ccy,extended=None):
     payload = dict(currency=ccy,extended=extended)
-    r= requests.get('https://www.deribit.com/api/v2/private/get_account_summary',params = payload, auth =auth)
+    r= s.get('https://www.deribit.com/api/v2/private/get_account_summary',params = payload, auth =auth)
     return r 
 
 '''III -Get my option prices sheet'''

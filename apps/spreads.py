@@ -13,18 +13,19 @@ import numpy as np
 import itertools
 import json
 import datetime as dt 
-
+import os 
 import sys
 sys.path.append('../dashapp') # add parent directory to the path to import app
+#sys.path.append('../dashapp/apps') # add parent directory to the path to import app
 import deribit_api3 as my_deribit
 from requests.auth import HTTPBasicAuth
-
+from fob import get_d1_instruments,get_exchanges_for_ins,get_ins_for_exchange,get_order_books,aggregate_order_books,normalize_order_book,build_book
 from app import app
 
 # If websocket use diginex.ccxt library and reduce update interval from 7 to 5 secs
 
 ENABLE_WEBSOCKET_SUPPORT = False
-refresh_rate = 5 if ENABLE_WEBSOCKET_SUPPORT else 7
+refresh_rate = 5 if ENABLE_WEBSOCKET_SUPPORT else 10
 if ENABLE_WEBSOCKET_SUPPORT:
     import diginex.ccxt.websocket_support as ccxt
 else:
@@ -35,8 +36,8 @@ deriv_exchanges =['bitmex','deribit']
 
 exchanges =  deriv_exchanges
 
-api_keys = {'deribit':'4v58Wk2hhiG9B','bitmex':'DM55KFt84AfdjJiyNjDBk_km'}
-api_secrets = {'deribit':'W654NMZDNCQLNXC2UC3VHQEZ4P3M5C55','bitmex':'jPDWiZcKuXJtVpajawENQiBzCKO2U885i3TWU9WIihBBUZgc'}
+api_keys = json.loads(os.environ.get('api_keys'))
+api_secrets = json.loads(os.environ.get('api_secrets'))
 
 exch_dict={}
 for x in exchanges:
@@ -52,176 +53,8 @@ Xpto_main = ['BTC','ETH']
 Xpto_alt = ['ADA','BCH','EOS','LTC','TRX','XRP']
 Xpto_sym = {'BTC':'฿','ETH':'⧫','ADA':'ADA','BCH':'BCH','EOS':'EOS','LTC':'LTC','TRX':'TRX','XRP':'XRP'}
 
-def get_d1_instruments():
-    '''
-    returns a dictionary with keys deribit and bitmex
-    each of which is in turn a dictionary with keys: BTC ETH and values: list containing Futures and Swaps traded on base 
-    and not expired
-    '''
-    all_ins={}
-    inversed={}
-    tick_sizes={}
-    for exc,exc_obj in exch_dict.items():
-        all_ins[exc]={}
-        for base in Xpto_main+Xpto_alt:
-            base_list=[]
-            for ins in getattr(exc_obj,'markets'):
-                market = getattr(exc_obj,'markets')[ins]
-                if market['type'] in ('future','swap') and market['base']==base and not ins.startswith('.') and '_' not in ins:
-                    if exc == 'bitmex':
-                        expiry = market['info']['expiry']
-                        if expiry is None:
-                            base_list.append(ins)
-                            inversed[ins]=True if market['info']['positionCurrency']=='USD' or market['info']['positionCurrency']=='' else False 
-                            tick_sizes[ins]=market['info']['tickSize']
-                        else:
-                            dt_expiry = dt.datetime.strptime(expiry,"%Y-%m-%dT%H:%M:%S.%fZ")
-                            if dt_expiry > dt.datetime.now():
-                                base_list.append(ins)
-                                inversed[ins]=True if market['info']['positionCurrency']=='USD' or market['info']['positionCurrency']=='' else False
-                                tick_sizes[ins]=market['info']['tickSize']
-                    else:
-                        base_list.append(ins)
-                        inversed[ins]=True if 'positionCurrency' in market['info'].keys() and len(base_list)!=0 else True
-                        tick_sizes[ins]=market['info']['tickSize']
-            if len(base_list)!=0 and base in Xpto_main:
-                all_ins[exc][base] = base_list
-            elif len(base_list)!=0 and base in Xpto_alt and 'ALT' in all_ins[exc].keys():
-                all_ins[exc]['ALT']+=base_list
-            elif len(base_list)!=0 and base in Xpto_alt:
-                all_ins[exc].update({'ALT':base_list})
-    return all_ins, inversed, tick_sizes
-            
-instruments, inversed, ticks = get_d1_instruments()
+instruments,inversed, ticks = get_d1_instruments()
 deribit_d1_ins , bitmex_d1_ins = instruments['deribit'], instruments['bitmex']
-
-def get_exchanges_for_ins(ins):
-    '''input: an instrument 
-    output: a dictionary of ccxt exchange objects of the exchanges listing the instrument
-    '''
-    return {x:exch_dict[x] for x in exch_dict if ins in list(exch_dict[x].load_markets().keys())}
-
-def get_ins_for_exchange(ex):
-    '''input: an exchange
-    output: a list of instruments '''
-    d={}
-    exec('d[ex]=ccxt.{}()'.format(ex))
-    d[ex].load_markets()
-    return d[ex].symbols
-
-def get_order_books(ins,ex):
-    '''ins is the instrument string ,'BTC-PERPETUAL'...
-        returns a dictionary of order books for the instrument
-        We call order book on every exchange the ins is trading and 
-        Return a dictionary {ex:order_book}
-        Deribit needs a 10 multiplier 
-    '''
-    order_books = {key: value.fetch_order_book(ins,limit=250,
-                        params={'full':1,'level':3,'limit_bids':0,'limit_asks':0,'type':'both'}) for key,value in ex.items() }
-    try:
-        order_books['deribit']=my_deribit.get_order_book(ins,250)
-    except:
-        pass
-
-    if 'deribit' in order_books and 'BTC' in ins:
-        bids_df = pd.DataFrame(order_books['deribit']['bids'])
-        asks_df = pd.DataFrame(order_books['deribit']['asks'])
-        bids_df[1]=bids_df[1]*10
-        asks_df[1]= asks_df[1]*10
-        order_books['deribit']['bids']=bids_df.values.tolist()
-        order_books['deribit']['asks']=asks_df.values.tolist()
-    return order_books
-
-def aggregate_order_books(dict_of_order_books):
-    '''dict_of_order_books is a dict of ccxt like order_books returned by order_books with ex name added
-        retuns a ccxt like dictionary order book sorted by prices (add exc name on every bid and ask)
-    '''
-    agg_dict_order_book = {}
-    bids = []
-    for x in dict_of_order_books:
-        for bid in dict_of_order_books[x]['bids']:
-            bids.append(bid+[x])
-    asks = []
-    for x in dict_of_order_books:
-        for ask in dict_of_order_books[x]['asks']:
-            asks.append(ask+[x])
-    agg_dict_order_book['bids'] = (pd.DataFrame(bids)).sort_values(by=0,ascending=False).values.tolist()
-    agg_dict_order_book['asks'] = (pd.DataFrame(asks)).sort_values(by=0,ascending=True).values.tolist()
-    return agg_dict_order_book
-
-def normalize_order_book(ins,order_book, cutoff = 0.1, step = 0.001):
-
-    '''
-    ins is needed to determine if inverse
-    order_book is a dictionary with keys bids asks timestamp datetime ...
-    where bids is a list of list [[bid,bid_size,exchange]] and 
-    asks is a list of list [[ask,ask_size,exchange]]
-    this is returned by aggregate_order_books
-    returns a dataframe with columns [ask, ask_size, ask_size_$, cum_ask_size_$, bid_, bid_size, bid_size_$, cum_bid_size_$]
-    horizontal stack
-    and an index of shape np.linspace(1 - cutoff,1 + cutoff ,step =.001 ~ 10 bps)
-    cutoff % depth around mid
-    step : aggregation level of prices
-
-    '''
-    try:
-        rounding = int(np.ceil(-np.log(step)/np.log(10)))
-        agg = True
-    except:
-        agg = False
-    if inversed[ins]:
-        bid_side = pd.DataFrame(order_book['bids'], columns = ['bid', 'bid_size_$', 'exc'])
-        bid_side['cum_bid_size_$'] = bid_side['bid_size_$'].cumsum()
-        ask_side = pd.DataFrame(order_book['asks'], columns = ['ask', 'ask_size_$', 'exc'])
-        ask_side['cum_ask_size_$'] = ask_side['ask_size_$'].cumsum()
-        ref = (bid_side['bid'][0] + ask_side['ask'][0])/2
-        bid_side['bid%'] = round(bid_side['bid']/ref, rounding) if agg else bid_side['bid']/ref
-        ask_side['ask%'] = round(ask_side['ask']/ref, rounding) if agg else ask_side['ask']/ref
-        bid_side = bid_side[bid_side['bid%']>=1-cutoff]
-        ask_side = ask_side[ask_side['ask%']<=1+cutoff]
-        bid_side['bid_size'] = bid_side['bid_size_$']/bid_side['bid']
-        bid_side['cum_bid_size'] = bid_side['bid_size'].cumsum()
-        ask_side['ask_size'] = ask_side['ask_size_$']/ask_side['ask']
-        ask_side['cum_ask_size'] = ask_side['ask_size'].cumsum()
-    else:
-        bid_side = pd.DataFrame(order_book['bids'], columns = ['bid', 'bid_size', 'exc'])
-        bid_side['cum_bid_size'] = bid_side['bid_size'].cumsum()
-        ask_side = pd.DataFrame(order_book['asks'], columns = ['ask', 'ask_size', 'exc'])
-        ask_side['cum_ask_size'] = ask_side['ask_size'].cumsum()
-        ref = (bid_side['bid'][0] + ask_side['ask'][0])/2
-        bid_side['bid%'] = round(bid_side['bid']/ref, rounding) if agg else bid_side['bid']/ref
-        ask_side['ask%'] = round(ask_side['ask']/ref, rounding) if agg else ask_side['ask']/ref
-        bid_side = bid_side[bid_side['bid%']>=1-cutoff]
-        ask_side = ask_side[ask_side['ask%']<=1+cutoff]
-        bid_side['bid_size_$'] = bid_side['bid_size']*bid_side['bid']
-        bid_side['cum_bid_size_$'] = bid_side['bid_size_$'].cumsum()
-        ask_side['ask_size_$'] = ask_side['ask_size']*ask_side['ask']
-        ask_side['cum_ask_size_$'] = ask_side['ask_size_$'].cumsum()
-
-    normalized_bids = pd.DataFrame(bid_side.groupby('bid%',sort=False).mean()['bid'])
-    normalized_bids.columns = ['bid']
-    normalized_bids['bid_size'] = bid_side.groupby('bid%',sort=False).sum()['bid_size']
-    normalized_bids['cum_bid_size'] = normalized_bids['bid_size'].cumsum()
-    normalized_bids['bid_size_$'] = bid_side.groupby('bid%',sort=False).sum()['bid_size_$']
-    normalized_bids['cum_bid_size_$'] = normalized_bids['bid_size_$'].cumsum()
-    normalized_bids['average_bid_fill'] = normalized_bids['cum_bid_size_$']/normalized_bids['cum_bid_size']
-    normalized_bids['bids_exc']=bid_side.groupby('bid%',sort=False).apply(lambda x: x['exc'].loc[x['bid_size'].idxmax()])
-    normalized_asks = pd.DataFrame(ask_side.groupby('ask%',sort=False).mean()['ask'])
-    normalized_asks.columns = ['ask']
-    normalized_asks['ask_size'] = ask_side.groupby('ask%',sort=False).sum()['ask_size']
-    normalized_asks['cum_ask_size'] = normalized_asks['ask_size'].cumsum()
-    normalized_asks['ask_size_$'] = ask_side.groupby('ask%',sort=False).sum()['ask_size_$']
-    normalized_asks['cum_ask_size_$'] = normalized_asks['ask_size_$'].cumsum()
-    normalized_asks['average_ask_fill']=normalized_asks['cum_ask_size_$']/normalized_asks['cum_ask_size']
-    normalized_asks['asks_exc']=ask_side.groupby('ask%',sort=False).apply(lambda x: x['exc'].loc[x['ask_size'].idxmax()])
-    book=pd.concat([normalized_asks,normalized_bids],sort=False)
-    return book
-
-def build_book(order_books,ins,exchanges,cutoff=.1,step=0.001):
-    ''' gets order books aggreagtes them then normalizes
-        returns a dataframe
-    '''
-    return normalize_order_book(ins,aggregate_order_books({key:order_books[key] for key in exchanges}),cutoff,step)
 
 def process_ob_for_dashtable(base, ins, df, step):
     # order table data
@@ -339,7 +172,7 @@ layout =  html.Div( className = 'row', style = {'marginLeft':35,'marginRight':35
             html.Label('Price Agg (bps):', style = {'margin-bottom':'10px','font-size':'1.4rem','font-weight':'bold'}),
             html.Div( className = 'row', style = {'width':'75%','font-size':'1.2rem'}, children = [
                 dcc.Slider( id='spread-agg-level',
-                            max = 4, step = 1, value = 3,
+                            max = 4, step = 1, value = 0,
                             marks = {i:str(10**(i-2) if i != 0 else 0) for i in range(0,5)})]),]),
         html.Div( className = 'three columns', children = [
             html.Label('Cutoff % :', style = {'margin-bottom':'10px','font-size':'1.4rem','font-weight':'bold'}),
@@ -524,10 +357,10 @@ def update_tables(order_books, base, ins1, ex1, ins2, ex2, cutoff, step, ob1_las
     df_asks['side'] = 'ask'
     df_asks.columns = ['price','size','cum_size','size_$','cum_size_$','average_fill','exc','side']
     mid = (df_bids['price'].max() + df_asks['price'].min())/2
-    df_bids['from_mid'] = df_bids['price']/mid
-    df_asks['from_mid'] = df_asks['price']/mid
+    df_bids['from_mid'] = (df_bids['price']-mid)/np.abs(mid)
+    df_asks['from_mid'] = (df_asks['price']-mid)/np.abs(mid)
     df_all = pd.concat([df_asks.sort_values(by='price',ascending=False), df_bids])
-    df_all['from_mid'] = (df_all['from_mid']-1)
+    #df_all['from_mid'] = (df_all['from_mid']-1)
     data_ob = df_all.to_dict('rows')
     sb_new_time = dt.datetime.now().strftime('%X')
 

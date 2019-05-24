@@ -24,7 +24,7 @@ from app import app  # app is the main app which will be run on the server in in
 # If websocket use diginex.ccxt library and reduce update interval from 7 to 5 secs
 
 ENABLE_WEBSOCKET_SUPPORT = False
-refresh_rate = 5 if ENABLE_WEBSOCKET_SUPPORT else 7
+refresh_rate = 3 if ENABLE_WEBSOCKET_SUPPORT else 3
 if ENABLE_WEBSOCKET_SUPPORT:
     import diginex.ccxt.websocket_support as ccxt
 else:
@@ -131,7 +131,7 @@ def get_order_books(ins,ex):
         order_books['deribit']=my_deribit.get_order_book(ins,500)
     except:
         pass
-
+    '''
     if 'deribit' in order_books and 'BTC' in ins:
         bids_df = pd.DataFrame(order_books['deribit']['bids'])
         asks_df = pd.DataFrame(order_books['deribit']['asks'])
@@ -139,6 +139,7 @@ def get_order_books(ins,ex):
         asks_df[1]= asks_df[1]*10
         order_books['deribit']['bids']=bids_df.values.tolist()
         order_books['deribit']['asks']=asks_df.values.tolist()
+    '''        
     return order_books
 
 def aggregate_order_books(dict_of_order_books):
@@ -511,7 +512,7 @@ layout =  html.Div(style={'marginLeft':35,'marginRight':35},
                                                 dcc.Slider(id='fut-agg-level',
                                                     marks = {i:str(10**(i-2) if i != 0 else 0) for i in range(0,5)},
                                                                                 max = 4,
-                                                                                value = 3,
+                                                                                value = 1,
                                                                                 step = 1)]),
                                             ]),
                                             html.Hr(style={'border-color':'#cb1828'}),        
