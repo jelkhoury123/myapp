@@ -288,7 +288,7 @@ def update_exchanges_options(ins):
 def update_data(ins,ex,n):
     now = dt.datetime.now()
     ex = {x:exch_dict[x] for x in ex}
-    order_books = fob.get_order_books(ins,ex)
+    order_books = fob.get_order_books(ins,ex,2000)
     save_this = (order_books,now.strftime("%Y-%m-%d  %H:%M:%S"))
     return json.dumps(save_this)
 
@@ -359,9 +359,10 @@ def update_page(order_books,base,ins,exchanges,x_scale,y_scale,cutoff,step, last
                 'format':Format(precision=rounding,scheme=Scheme.fixed)},
                 {'id':'exc','name':'Exchange','hidden':True},
                 {'id':'side','name':'side','hidden':True}]
+    pair = base+'/USD' if inversed[ins] else base+'/BTC' if base!='ALT' else ins[:3]+'/BTC'
     try:
-        pair = base+'/USD' if base!='ALT' else ins[:3]+'/USD'
-        liq_dfs = [df for df in fob.get_liq_params(df,pair,ins,step)]
+        
+        liq_dfs = [df for df in fob.get_liq_params(df,pair,step)]
         col_format = {'bid':Format(precision=rounding,scheme=Scheme.fixed),
                       'ask':Format(precision=rounding,scheme=Scheme.fixed),
                       'mid':Format(precision=rounding,scheme=Scheme.fixed),

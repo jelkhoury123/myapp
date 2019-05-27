@@ -48,6 +48,8 @@ Xpto_alt = ['ADA','BCH','EOS','LTC','TRX','XRP']
 Xpto_sym = {i:i for i in Xpto_alt}
 Xpto_sym.update({'BTC':'฿','ETH':'⧫'})
 
+Fiat = ['USD','EUR','GBP','CHF','HKD','JPY','CNH']
+
 def get_d1_instruments():
     '''
     returns a tuple of 
@@ -89,8 +91,10 @@ def get_d1_instruments():
                 all_ins[exc].update({'ALT':base_list})
     return all_ins, inversed, tick_sizes
 
+
 instruments,inversed, ticks = get_d1_instruments()
 deribit_d1_ins , bitmex_d1_ins = instruments['deribit'], instruments['bitmex']
+
 
 def get_exchanges_for_ins(ins):
     '''input: an instrument 
@@ -162,20 +166,36 @@ def normalize_order_book(ins,order_book, cutoff = 0.1, step = 0.001):
         agg = True
     except:
         agg = False
-    if inversed[ins]:
-        bid_side = pd.DataFrame(order_book['bids'], columns = ['bid', 'bid_size_$', 'exc'])
-        bid_side['cum_bid_size_$'] = bid_side['bid_size_$'].cumsum()
-        ask_side = pd.DataFrame(order_book['asks'], columns = ['ask', 'ask_size_$', 'exc'])
-        ask_side['cum_ask_size_$'] = ask_side['ask_size_$'].cumsum()
-        ref = (bid_side['bid'][0] + ask_side['ask'][0])/2
-        bid_side['bid%'] = round(bid_side['bid']/ref, rounding) if agg else bid_side['bid']/ref
-        ask_side['ask%'] = round(ask_side['ask']/ref, rounding) if agg else ask_side['ask']/ref
-        bid_side = bid_side[bid_side['bid%']>=1-cutoff]
-        ask_side = ask_side[ask_side['ask%']<=1+cutoff]
-        bid_side['bid_size'] = bid_side['bid_size_$']/bid_side['bid']
-        bid_side['cum_bid_size'] = bid_side['bid_size'].cumsum()
-        ask_side['ask_size'] = ask_side['ask_size_$']/ask_side['ask']
-        ask_side['cum_ask_size'] = ask_side['ask_size'].cumsum()
+
+    if ins in inversed:
+        if  inversed[ins]:
+            bid_side = pd.DataFrame(order_book['bids'], columns = ['bid', 'bid_size_$', 'exc'])
+            bid_side['cum_bid_size_$'] = bid_side['bid_size_$'].cumsum()
+            ask_side = pd.DataFrame(order_book['asks'], columns = ['ask', 'ask_size_$', 'exc'])
+            ask_side['cum_ask_size_$'] = ask_side['ask_size_$'].cumsum()
+            ref = (bid_side['bid'][0] + ask_side['ask'][0])/2
+            bid_side['bid%'] = round(bid_side['bid']/ref, rounding) if agg else bid_side['bid']/ref
+            ask_side['ask%'] = round(ask_side['ask']/ref, rounding) if agg else ask_side['ask']/ref
+            bid_side = bid_side[bid_side['bid%']>=1-cutoff]
+            ask_side = ask_side[ask_side['ask%']<=1+cutoff]
+            bid_side['bid_size'] = bid_side['bid_size_$']/bid_side['bid']
+            bid_side['cum_bid_size'] = bid_side['bid_size'].cumsum()
+            ask_side['ask_size'] = ask_side['ask_size_$']/ask_side['ask']
+            ask_side['cum_ask_size'] = ask_side['ask_size'].cumsum()
+        else:
+            bid_side = pd.DataFrame(order_book['bids'], columns = ['bid', 'bid_size', 'exc'])
+            bid_side['cum_bid_size'] = bid_side['bid_size'].cumsum()
+            ask_side = pd.DataFrame(order_book['asks'], columns = ['ask', 'ask_size', 'exc'])
+            ask_side['cum_ask_size'] = ask_side['ask_size'].cumsum()
+            ref = (bid_side['bid'][0] + ask_side['ask'][0])/2
+            bid_side['bid%'] = round(bid_side['bid']/ref, rounding) if agg else bid_side['bid']/ref
+            ask_side['ask%'] = round(ask_side['ask']/ref, rounding) if agg else ask_side['ask']/ref
+            bid_side = bid_side[bid_side['bid%']>=1-cutoff]
+            ask_side = ask_side[ask_side['ask%']<=1+cutoff]
+            bid_side['bid_size_$'] = bid_side['bid_size']*bid_side['bid']
+            bid_side['cum_bid_size_$'] = bid_side['bid_size_$'].cumsum()
+            ask_side['ask_size_$'] = ask_side['ask_size']*ask_side['ask']
+            ask_side['cum_ask_size_$'] = ask_side['ask_size_$'].cumsum()
     else:
         bid_side = pd.DataFrame(order_book['bids'], columns = ['bid', 'bid_size', 'exc'])
         bid_side['cum_bid_size'] = bid_side['bid_size'].cumsum()
@@ -334,7 +354,7 @@ def order_fill(order_book_df, order_sizes,in_ccy=True):
         average_fills[i] = average_fill
     return average_fills/mid
  
-def get_liq_params(normalized,pair,ins,step):
+def get_liq_params(normalized,pair,step):
     #coin stats
     coinmar = ccxt.coinmarketcap()
     coindata=coinmar.load_markets()
@@ -385,8 +405,8 @@ def get_liq_params(normalized,pair,ins,step):
     decimals = pd.Series(rounding * 4 +[6] +rounding +[6] + [0]*2 + [6],index=result1.columns)
     result1=result1.round(decimals)
     result2 = pd.DataFrame(index=[str(o) for o in ordersizes])
-    ordersizes_dollar=ordersizes*mid
-    result2 [0]=(ordersizes_dollar/1e6).round(1) if inversed[ins] else (ordersizes_dollar).round(1)
+    ordersizes_dollar = ordersizes*mid
+    result2 [0]=(ordersizes_dollar/1e6).round(1) if pair[-3:] in Fiat else (ordersizes_dollar).round(1)
     result2[1] = slippage
     result2=result2.T
     info = coindata[pair]['info']

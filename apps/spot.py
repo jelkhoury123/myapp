@@ -16,7 +16,7 @@ import datetime as dt
 
 import sys
 sys.path.append('..')
-
+import fob
 from app import app
 
 ENABLE_WEBSOCKET_SUPPORT = False
@@ -46,10 +46,11 @@ for x in exchanges:
 Xpto_main = ['BTC','ETH']
 Xpto_alt = ['ADA','BCH','EOS','LTC','TRX','XRP', 'USDC']
 Fiat = ['USD','EUR','GBP','CHF','HKD','JPY','CNH']
-Xpto_sym = {'BTC':'฿','ETH':'⧫','ADA':'ADA','BCH':'BCH','EOS':'EOS','LTC':'LTC','TRX':'TRX','XRP':'XRP', 'USDC':'USDC','USD':'$','EUR':'€','GBP':'£','CHF':'CHF','HKD':'HKD','JPY':'JP ¥','CNH':'CN ¥'}
+Xpto_sym = {'BTC':'฿','ETH':'⧫','ADA':'ADA','BCH':'BCH','EOS':'EOS','LTC':'LTC','TRX':'TRX','XRP':'XRP', 'USDC':'USDC',
+'USD':'$','EUR':'€','GBP':'£','CHF':'CHF','HKD':'HKD','JPY':'JP ¥','CNH':'CN ¥'}
 xpto_fiat = [xpto+'/'+ fiat for xpto in Xpto_main+Xpto_alt for fiat in Fiat]
 xpto_xpto = [p[0]+'/'+p[1] for p in itertools.permutations(Xpto_main+Xpto_alt,2)]
-
+#inversed= {}
 all_pairs = set(sum(itertools.chain([*exch_dict[x].load_markets()] for x in exch_dict),[])) 
 pairs = list(set(xpto_fiat + xpto_xpto) & set(all_pairs))
 pairs.sort()
@@ -87,7 +88,7 @@ def get_order_books(pair,ex):
         special case for binance which API fails if # of parmaeters > 2
     '''
     nobinance= {key:value for key, value in ex.items() if key != 'binance'and  key != 'bitfinex'}
-    order_books = {key: value.fetch_order_book(pair,limit=2000 if key!='bithumb' else 50,
+    order_books = {key: value.fetch_order_book(pair,limit=2000,
                         params={'full':1,'level':3,'limit_bids':0,'limit_asks':0,'type':'both'})
                         for key,value in nobinance.items() }
     if 'binance' in ex:
@@ -168,143 +169,6 @@ def build_book(order_books, pair, exchanges, cutoff=.1, step=0.001):
     '''
     return normalize_order_book(aggregate_order_books({key:order_books[key] for key in exchanges}), cutoff, step)
 
-def plot_book(order_books,pair, exc, relative=True, currency=True, cutoff=.1):
-    ''' plots the order book as a v shape chart '''
-    order_book = build_book(order_books,pair,exc,cutoff)
-    best_bid = round(order_book['bid'].max(),4)
-    best_ask = round(order_book['ask'].min(),4)
-    if currency:
-        col_to_chart = '_$'
-    else:
-        col_to_chart = ''
-    if relative:
-        trace_asks=go.Scatter(x=order_book.index,y=order_book['cum_ask_size'+col_to_chart],
-                        name='asks',marker=dict(color='rgba(203,24,40,0.6)'),fill='tozeroy',fillcolor='rgba(203,24,40,0.2)')
-        trace_bids=go.Scatter(x=order_book.index,y=order_book['cum_bid_size'+col_to_chart],
-                        name='bids',marker=dict(color='rgba(0,0,255,0.6)'),fill='tozeroy',fillcolor='rgba(0,0,255,0.2)')     
-    else:
-        trace_asks=go.Scatter(x=order_book['ask'].fillna(0)+order_book['bid'].fillna(0),y=order_book['cum_ask_size'+col_to_chart],
-                        name='asks',marker=dict(color='rgba(203,24,40,0.6)'),fill='tozeroy',fillcolor='rgba(203,24,40,0.2)')
-        trace_bids=go.Scatter(x=order_book['ask'].fillna(0)+order_book['bid'].fillna(0),y=order_book['cum_bid_size'+col_to_chart],
-                        name='bids',marker=dict(color='rgba(0,0,255,0.6)'),fill='tozeroy',fillcolor='rgba(0,0,255,0.2)')
-        
-    layout = go.Layout(title = ', '.join(exc),
-                         xaxis = dict(title= pair +'  ' + str(best_bid)+' - '+ str(best_ask)),
-                         showlegend=False, margin = {'t':25,'r': 10,'l': 35})
-    data=[trace_asks,trace_bids]
-    figure = go.Figure(data=data,layout=layout)
-    return figure
-
-def plot_depth(order_books,pair, exc, relative=True, currency=True, cutoff=.1):
-    if currency:
-        col_to_chart = '_$'
-    else:
-        col_to_chart = ''
-    order_book = build_book(order_books,pair,exc,cutoff)
-    mid = (order_book['bid'].max()+order_book['ask'].min())/2 if relative else 1
-    trace_asks = go.Scatter(x=order_book['cum_ask_size'+col_to_chart],y=order_book['average_ask_fill']/mid,
-                        name='ask depth',marker=dict(color='rgba(203,24,40,0.6)'),fill='tozerox',fillcolor='rgba(203,24,40,0.2)')
-    trace_bids = go.Scatter(x=-order_book['cum_bid_size'+col_to_chart],y=order_book['average_bid_fill']/mid,
-                        name='bid depth',marker=dict(color='rgba(0,0,255,0.6)'),fill='tozerox',fillcolor='rgba(0,0,255,0.2)')
-    data = [trace_asks,trace_bids]
-    figure = go.Figure(data=data, layout={'title': 'Market Depth','showlegend':False,'margin' : {'t':25,'r': 10,'l': 25}})
-    return figure
-
-def order_fill(order_book_df, order_sizes,in_ccy=True):
-    '''takes in an order book dataframe and an np.array of order sizes
-        with size in currecncy by default else in coin
-        returns an np.array of the purchase costs or the sale proceeds of an order
-    '''
-    average_fills = np.zeros(order_sizes.shape)
-    mid=(order_book_df['ask'].min()+order_book_df['bid'].max())/2
-    if in_ccy:
-        order_sizes=order_sizes/mid
-    for i , order_size in enumerate(order_sizes):
-        if order_size > 0:
-            try:
-                last_line = order_book_df[order_book_df['cum_ask_size']>order_size].iloc[0]
-                ccy_fill = last_line['cum_ask_size_$']+(order_size-last_line['cum_ask_size'])*last_line['ask']
-                average_fill=ccy_fill/order_size
-            except:
-                average_fill=np.nan
-        elif order_size <= 0:
-            try:
-                last_line = order_book_df[order_book_df['cum_bid_size'] > -order_size].iloc[0]
-                ccy_fill=last_line['cum_bid_size_$']+(-order_size-last_line['cum_bid_size'])*last_line['bid']
-                average_fill = -ccy_fill/order_size
-            except:
-                average_fill = np.nan
-        average_fills[i] = average_fill
-    return average_fills/mid
- 
-def get_liq_params(normalized,pair,step):
-    #coin stats
-    coinmar = ccxt.coinmarketcap()
-    coindata=coinmar.load_markets()
-    total_coins=float(coindata[pair]['info']['available_supply'])  #number of coins floating
-    order_span = (1,10,20,30,40)
-    clip = total_coins/(100*1000)                                      #my standard order size 
-    ordersizes=np.array([clip* i for i in order_span]+[-clip* i for i in order_span]).astype(int)
-    slippage = ((order_fill(normalized,ordersizes,False)-1)*100).round(2)
-    #order book
-    best_bid = normalized['bid'].max()
-    best_ask = normalized['ask'].min()
-    mid= (best_bid + best_ask)/2
-    spread = best_ask-best_bid
-    spread_pct = spread/mid*100
-    cross = min(0,spread)
-    cross_pct = min(0,spread_pct)
-    #arb with while loop!
-    arb_ask = normalized.copy()[[c for c in normalized.columns if 'ask' in c]].dropna()
-    arb_bid = normalized.copy()[[c for c in normalized.columns if 'bid' in c]].dropna()
-    arb = spread < 0
-    arb_dollar = 0
-    arb_size = 0
-    while arb:
-        #clean one line of the order book
-        bid_size = arb_bid.iloc[0]['bid_size']
-        first_bid = arb_bid.iloc[0]['bid']
-        ask_size = arb_ask.iloc[0]['ask_size']
-        first_ask = arb_ask.iloc[0]['ask']
-        sell_first = bid_size < ask_size
-        if sell_first:
-            arb_size += bid_size
-            arb_dollar += bid_size*(first_bid-first_ask)
-            arb_bid = arb_bid.iloc[1:]
-            arb_ask['ask_size'].iloc[0]-=bid_size
-            first_bid = arb_bid.iloc[0]['bid']
-        if not sell_first:
-            arb_size += ask_size
-            arb_dollar += ask_size*(best_bid-best_ask)
-            arb_ask = arb_ask.iloc[1:] 
-            arb_bid['bid_size'].iloc[0]-=ask_size
-            first_ask = arb_ask.iloc[0]['ask']
-
-        arb = first_bid > first_ask
-
-    rounding = [int(np.ceil(-np.log(mid*step)/np.log(10)))+1] if step !=0 else [8]
-    result1 = pd.DataFrame([best_bid,best_ask,mid,spread,spread_pct/100,cross,cross_pct/100,arb_dollar,arb_size,arb_dollar/(arb_size*mid) if arb_size!=0 else 0],
-    index=['bid','ask','mid','spread','spread%','cross','cross%','arb $','size arb','arb%']).T
-    decimals = pd.Series(rounding * 4 +[6] +rounding +[6] + [0]*2 + [6],index=result1.columns)
-    result1=result1.round(decimals)
-    result2 = pd.DataFrame(index=[str(o) for o in ordersizes])
-    ordersizes_dollar=ordersizes*mid
-    result2 [0]=(ordersizes_dollar/1e6).round(1)
-    result2[1] = slippage
-    result2=result2.T
-    info = coindata[pair]['info']
-    select_info=['symbol','rank','24h_volume_usd','market_cap_usd',
-                'available_supply','percent_change_1h','percent_change_24h','percent_change_7d']
-    selected_info={key:value for key,value in info.items() if key in select_info}
-    result3 = pd.DataFrame(pd.Series(selected_info)).T
-    result3.columns=['Coin','Rank','24H % Volume','USD Market Cap M$','Coins Supply M','% 1h','% 24h','% 7d']
-    result3['24H % Volume']= round(float(result3['24H % Volume'])/float(result3['USD Market Cap M$'])*100,1)
-    result3['USD Market Cap M$'] = round(float(result3['USD Market Cap M$'])/(1000*1000),0)
-    result3['Coins Supply M'] = round(float(result3['Coins Supply M'])/(1000*1000),1)
-    result3 = result3.astype({'24H % Volume':float,'% 1h':float,'% 24h':float,'% 7d':float})
-    result3[['24H % Volume','% 1h','% 24h','% 7d']] = result3[['24H % Volume','% 1h','% 24h','% 7d']].div(100, axis = 0)
-    return [result1,result2,result3]
-        
 title = 'Spot'
 
 layout = html.Div(style={'marginLeft':35,'marginRight':35},
@@ -555,8 +419,8 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step,last_upda
     order_books = {key:order_books[key] for key in order_books if key in exchanges}
 
     # 1. Plot Book and Depth
-    book_plot = plot_book(order_books, pair, exchanges, relative, currency, cutoff)
-    depth_plot = plot_depth(order_books, pair, exchanges, relative, currency, cutoff)
+    book_plot = fob.plot_book(order_books, pair, exchanges, relative, currency, cutoff)
+    depth_plot = fob.plot_depth(order_books, pair, exchanges, relative, currency, cutoff)
 
     # 2. Order Table
     df =  build_book(order_books, pair, exchanges, cutoff, step)
@@ -594,7 +458,7 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step,last_upda
             {'id':'exc','name':'Exchange'},
             {'id':'side','name':'side','hidden':True}]
     try:
-        liq_dfs = [df.round(10) for df in get_liq_params(df,pair,step)]
+        liq_dfs = [df.round(10) for df in fob.get_liq_params(df,pair,step)]
         col_format = {'bid':Format(precision=rounding,scheme=Scheme.fixed),
                       'ask':Format(precision=rounding,scheme=Scheme.fixed),
                       'mid':Format(precision=rounding,scheme=Scheme.fixed),
