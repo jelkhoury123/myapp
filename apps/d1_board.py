@@ -73,7 +73,7 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
         # Hidden Data Storage
         html.Div( id = 'd1-hidden_storage', style = {'display': 'none'}, children = get_df() ),
         # Refresh Rate
-        dcc.Interval( id = 'd1-refresh_rate', interval = 10*1000, n_intervals = 0, ),
+        dcc.Interval( id = 'd1-refresh_rate', interval = 5*1000, n_intervals = 0, ),
 
         html.Div( children = [ 
             html.Div( className = 'row', style = {'border-bottom': '1px solid #CB1828', 'margin-bottom': '20px', 'margin-top': '10px'} if i!='ALTBTC' else {'boder-bottom': 'none'}, children = [

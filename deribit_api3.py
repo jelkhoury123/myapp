@@ -14,21 +14,21 @@ s=requests.Session()
 
 def get_summary_by_currency(ccy,kind=None):
     payload={'currency':ccy,'kind':kind}
-    r = s.get('https://deribit.com/api/v2/public/get_book_summary_by_currency',params=payload)
+    r = s.get('https://www.deribit.com/api/v2/public/get_book_summary_by_currency',params=payload)
     return pd.DataFrame((r.json())['result'])
 
 def get_summary_by_instrument(ins):
     payload={'instrument_name':ins}
-    r = s.get('https://deribit.com/api/v2/public/get_book_summary_by_instrument',params=payload)
+    r = s.get('https://www.deribit.com/api/v2/public/get_book_summary_by_instrument',params=payload)
     return pd.DataFrame((r.json())['result'])
 
 def get_contract_size(ins):
     payload={'instrument_name':ins}
-    r = s.get('https://deribit.com/api/v2/public/get_contract_size',params=payload)
+    r = s.get('https://www.deribit.com/api/v2/public/get_contract_size',params=payload)
     return pd.DataFrame([(r.json())['result']],index=[ins])
 
 def get_currencies():
-    r = s.get('https://deribit.com/api/v2/public/get_currencies')
+    r = s.get('https://www.deribit.com/api/v2/public/get_currencies')
     return pd.DataFrame(r.json()['result'])
 
 def get_funding_chart_data(ins,length):
@@ -48,7 +48,7 @@ def get_index(ccy):
 
 def get_instruments(currency,kind=None,expired='false'):
     payload={'currency':currency,'kind':kind,'expired':expired}
-    r = s.get('https://deribit.com/api/v2/public/get_instruments',params=payload)
+    r = s.get('https://www.deribit.com/api/v2/public/get_instruments',params=payload)
     return pd.DataFrame((r.json())['result'])
 
 def get_order_book(ins,depth=100):

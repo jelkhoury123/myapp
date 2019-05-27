@@ -5,12 +5,17 @@ import json
 import datetime as dt 
 import os
 import sys
-sys.path.append('..') # add parent directory to the path to import app
+import plotly.graph_objs as go 
+import plotly.figure_factory as ff
+import pandas as pd
+import dash_table 
+from dash_table.Format import Format, Scheme, Sign, Symbol
+import dash_table.FormatTemplate as FormatTemplate
+sys.path.append('..') # add parent directory 
 import deribit_api3 as my_deribit
 from requests.auth import HTTPBasicAuth
 
 ENABLE_WEBSOCKET_SUPPORT = False
-refresh_rate = 3 if ENABLE_WEBSOCKET_SUPPORT else 6
 if ENABLE_WEBSOCKET_SUPPORT:
     import diginex.ccxt.websocket_support as ccxt
 else:
@@ -30,7 +35,7 @@ exch_dict={}
 for x in exchanges:
     exec('exch_dict[x]=ccxt.{}({{"apiKey": "{}", "secret": "{}"}})'.format(x, api_keys[x], api_secrets[x]))
     #exec('exch_dict[x]=ccxt.{}()'.format(x))
-for x,xccxt in exch_dict.items():
+for xccxt in exch_dict.values():
     xccxt.load_markets()
 
 deribit = exch_dict['deribit']
@@ -40,8 +45,8 @@ Xpto_main = ['BTC','ETH']
 #Alt coins
 Xpto_alt = ['ADA','BCH','EOS','LTC','TRX','XRP']
 #Symbols
-Xpto_sym = {'BTC':'฿','ETH':'⧫','ADA':'ADA','BCH':'BCH','EOS':'EOS','LTC':'LTC','TRX':'TRX','XRP':'XRP'}
-
+Xpto_sym = {i:i for i in Xpto_alt}
+Xpto_sym.update({'BTC':'฿','ETH':'⧫'})
 
 def get_d1_instruments():
     '''
@@ -52,9 +57,7 @@ def get_d1_instruments():
     2. a dictionary {ins:True if inverse instrument}
     3. a dictionary {ins:tick size}
     '''
-    all_ins={}
-    inversed={}
-    tick_sizes={}
+    all_ins,inversed,tick_sizes={},{},{}
     for exc,exc_obj in exch_dict.items():
         all_ins[exc]={}
         for base in Xpto_main + Xpto_alt:
@@ -103,7 +106,7 @@ def get_ins_for_exchange(ex):
     d[ex].load_markets()
     return d[ex].symbols
 
-def get_order_books(ins,ex):
+def get_order_books(ins,ex,size=100):
     '''ins is the instrument string example 'BTC-PERPETUAL',
         ex is a dictionary of ccxt objects where ins is traded
         returns a dictionary of order books for the instrument
@@ -113,11 +116,11 @@ def get_order_books(ins,ex):
         Deribit needs a 10 multiplier 
     '''
     if not 'deribit' in ex.keys():
-        order_books = {key: value.fetch_order_book(ins,limit=1000,
+        order_books = {key: value.fetch_order_book(ins,limit=size,
         params={'full':1,'level':3,'limit_bids':0,'limit_asks':0,'type':'both'}) for key,value in ex.items() }
     else:
         order_books={}
-        order_books['deribit']=my_deribit.get_order_book(ins,500)
+        order_books['deribit']=my_deribit.get_order_book(ins,size*2)
     
     return order_books
 
@@ -221,15 +224,46 @@ def build_stack_book(normalized_order_book,step=0.001):
     df_bids = df[[i for i in df.columns if 'bid' in i]].dropna().iloc[:13]
     df_bids['side'] = 'bid'
     df_bids.columns=['price','size','cum_size','size_$','cum_size_$','average_fill','exc','side']
+
     df_asks = df[[i for i in df.columns if 'ask' in i]].dropna().iloc[:13]
     df_asks['side'] = 'ask'
     df_asks.columns = ['price','size','cum_size','size_$','cum_size_$','average_fill','exc','side']
+
     mid=(df_bids['price'].max() + df_asks['price'].min())/2
     df_all=pd.concat([df_asks.sort_values(by='price',ascending=False),df_bids]).rename_axis('from_mid')
-    rounding = [int(np.ceil(-np.log(mid*step)/np.log(10)))+1]
-    df_all=df_all.round(rounding[0]).reset_index()
+    #rounding = [int(np.ceil(-np.log(mid*step)/np.log(10)))+1]
+    df_all=df_all.reset_index()
     df_all['from_mid'] = (df_all['from_mid']-1)
-    return df_all
+
+    return df_all,mid
+
+def process_ob_for_dashtable(base, ins, normalized_order_book, step=.001):
+    # order table data
+    
+    df_all, mid  = build_stack_book(normalized_order_book,step=step)
+    data_ob = df_all.to_dict('rows')
+
+    # order table columns
+    precision = len(str(ticks[ins]).split('.')[1]) if '.' in str(ticks[ins]) else int(str(ticks[ins]).split('e-')[1])
+    rounding = max(min(int(np.ceil(-np.log(mid*step)/np.log(10))), precision),0) if step !=0 else precision
+    r = int(np.ceil(-np.log(step)/np.log(10)))-2 if step !=0 else int(np.ceil(-np.log(10**-precision/mid)/np.log(10))-2)
+
+    base_sym = Xpto_sym[base] if base!='ALT' else Xpto_sym[ins[:3]]
+    quote_sym = '$' if inversed[ins] else '฿'
+
+    columns_ob=[{'id':'from_mid','name':'From Mid','type':'numeric','format':FormatTemplate.percentage(r).sign(Sign.positive)},
+                {'id':'price','name':'Price','type':'numeric','format':Format(precision=rounding,scheme=Scheme.fixed)},
+                {'id':'size','name':'Size ({})'.format(base_sym),'type':'numeric','format':Format(precision=2,scheme=Scheme.fixed)},
+                {'id':'cum_size','name': 'Size Total ({})'.format(base_sym),'type':'numeric','format':Format(precision=2,scheme=Scheme.fixed)},
+                {'id':'size_$','name':'Size ({})'.format(quote_sym),'type':'numeric',
+                'format':FormatTemplate.money(0) if inversed[ins] else Format(precision=2,scheme=Scheme.fixed,symbol=Symbol.yes,symbol_prefix=u'฿')},
+                {'id':'cum_size_$','name':'Size Total ({})'.format(quote_sym),'type':'numeric',
+                'format':FormatTemplate.money(0) if inversed[ins] else Format(precision=2,scheme=Scheme.fixed,symbol=Symbol.yes,symbol_prefix=u'฿')},
+                {'id':'average_fill','name':'Averge Fill','type':'numeric',
+                'format':Format(precision=rounding,scheme=Scheme.fixed)},
+                {'id':'exc','name':'Exchange','hidden':True},
+                {'id':'side','name':'side','hidden':True}]
+    return data_ob, columns_ob
 
 def plot_book(order_books,ins, exc, relative=True, currency=True, cutoff=.1):
     ''' plots the order book as a v shape chart '''
@@ -440,3 +474,58 @@ def get_balances():
     b=pd.concat([pd.DataFrame(b_balance),pd.DataFrame(d_balance)])
     b = b[['exc','used','free','total']]
     return b
+
+def build_spread_book(nob1,nob2):
+    bid_columns = [col for col in nob1.columns if 'bid' in col]
+    ask_columns = [col for col in nob1.columns if 'ask' in col]
+    nob2_asks = nob2[ask_columns].dropna()
+    nob1_bids = nob1 [bid_columns].dropna()
+    nob1_bids.columns = [c.replace('bid','') for c in nob1_bids.columns]
+    nob2_asks.columns = [c.replace('ask','') for c in nob2_asks.columns]
+    spread_book_asks = pd.DataFrame(columns=nob2_asks.columns,index = range((len(nob2_asks)+len(nob1_bids))+1))
+    nob2_bids = nob2[bid_columns].dropna()
+    nob1_asks = nob1 [ask_columns].dropna()
+    nob1_asks.columns = [c.replace('ask','') for c in nob1_asks.columns]
+    nob2_bids.columns = [c.replace('bid','') for c in nob2_bids.columns]
+    spread_book_bids = pd.DataFrame(columns=nob2_bids.columns,index= range((len(nob2_bids)+len(nob1_asks))+1))
+    #build ask side
+    i = 0
+    while len(nob1_bids)>1 and len(nob2_asks) >1:
+        trade_buy = (nob2_asks.iloc[0,:-1]-nob1_bids.iloc[0,:-1])
+        #trade_buy=trade_buy.append(pd.Series([nob2_asks.iloc[0,-1]+'/'+nob1_bids.iloc[0,-1]],index = ['s_exc']))
+        ask_emptied = True if trade_buy[3]<0 else False
+        trade_buy [1:-1] = nob2_asks.iloc[0,1:-2] if ask_emptied else nob1_bids.iloc[0,1:-2]
+        spread_book_asks.iloc[i]=trade_buy
+        if ask_emptied :
+            nob2_asks = nob2_asks.drop(nob2_asks.index[0])
+            nob1_bids.iloc[0,1:-2] =  nob1_bids.iloc[0,1:-2] - trade_buy[1:-1]
+        else:
+            nob1_bids = nob1_bids.drop(nob1_bids.index[0])
+            nob2_asks.iloc[0,1:-2] = nob2_asks.iloc[0,1:-2] - trade_buy[1:-1]
+        i+=1
+    #build bid side
+    i = 0
+    while len(nob1_asks)*len(nob2_bids) !=0:
+        trade_sell = (nob2_bids.iloc[0,:-1]-nob1_asks.iloc[0,:-1])
+        #trade_sell=trade_sell.append(pd.Series([nob2_bids.iloc[0,-1]+'/'+nob1_asks.iloc[0,-1]],index = ['s_exc']))
+        bid_emptied = True if trade_sell[3]<0 else False
+        trade_sell [1:-1] = nob2_bids.iloc[0,1:-2].astype(float) if bid_emptied else nob1_asks.iloc[0,1:-2].astype(float)
+        spread_book_bids.iloc[i]=trade_sell
+        if bid_emptied :
+            nob2_bids = nob2_bids.drop(nob2_bids.index[0])
+            nob1_asks.iloc[0,1:-2] =  nob1_asks.iloc[0,1:-1]-trade_sell[1:-1]
+        else:
+            nob1_asks = nob1_asks.drop(nob1_asks.index[0])
+            nob2_bids.iloc[0,1:-2] =  nob2_bids.iloc[0,1:-1]-trade_sell[1:-1]
+        i+=1
+    spread_book_asks.columns = ask_columns
+    spread_book_bids.columns = bid_columns
+    spread_book_asks['cum_ask_size'] = spread_book_asks['ask_size'].cumsum()
+    spread_book_bids['cum_bid_size'] = spread_book_bids['bid_size'].cumsum()
+    spread_book_asks['cum_ask_size_$'] = spread_book_asks['ask_size_$'].cumsum()
+    spread_book_bids['cum_bid_size_$'] = spread_book_bids['bid_size_$'].cumsum()
+    spread_book = pd.concat([spread_book_asks,spread_book_bids],sort=False).astype(float)
+    spread_book['asks_exc'] = nob2_asks.iloc[0,-1]+'/'+nob1_bids.iloc[0,-1]
+    spread_book['bids_exc'] = nob2_asks.iloc[0,-1]+'/'+nob1_bids.iloc[0,-1]
+    
+    return spread_book

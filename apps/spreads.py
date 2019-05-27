@@ -10,16 +10,12 @@ import plotly.figure_factory as ff
 import pandas as pd
 import plotly.graph_objs as go
 import numpy as np
-import itertools
 import json
 import datetime as dt 
 import os 
 import sys
 sys.path.append('../dashapp') # add parent directory to the path to import app
-#sys.path.append('../dashapp/apps') # add parent directory to the path to import app
-import deribit_api3 as my_deribit
-from requests.auth import HTTPBasicAuth
-from fob import get_d1_instruments,get_exchanges_for_ins,get_ins_for_exchange,get_order_books,aggregate_order_books,normalize_order_book,build_book
+import fob
 from app import app
 
 # If websocket use diginex.ccxt library and reduce update interval from 7 to 5 secs
@@ -42,7 +38,6 @@ api_secrets = json.loads(os.environ.get('api_secrets'))
 exch_dict={}
 for x in exchanges:
     exec('exch_dict[x]=ccxt.{}({{"apiKey": "{}", "secret": "{}"}})'.format(x, api_keys[x], api_secrets[x]))
-    #exec('exch_dict[x]=ccxt.{}()'.format(x))
 for x,xccxt in exch_dict.items():
     xccxt.load_markets()
 
@@ -51,105 +46,11 @@ bitmex = exch_dict['bitmex']
 
 Xpto_main = ['BTC','ETH']
 Xpto_alt = ['ADA','BCH','EOS','LTC','TRX','XRP']
-Xpto_sym = {'BTC':'฿','ETH':'⧫','ADA':'ADA','BCH':'BCH','EOS':'EOS','LTC':'LTC','TRX':'TRX','XRP':'XRP'}
+Xpto_sym = {i:i for i in Xpto_alt}
+Xpto_sym.update({'BTC':'฿','ETH':'⧫'})
 
-instruments,inversed, ticks = get_d1_instruments()
+instruments,inversed, ticks = fob.get_d1_instruments()
 deribit_d1_ins , bitmex_d1_ins = instruments['deribit'], instruments['bitmex']
-
-def process_ob_for_dashtable(base, ins, df, step):
-    # order table data
-    
-    df_bids = df[[i for i in df.columns if 'bid' in i]].dropna().iloc[:13]
-    df_bids['side'] = 'bid'
-    df_bids.columns=['price','size','cum_size','size_$','cum_size_$','average_fill','exc','side']
-
-    df_asks = df[[i for i in df.columns if 'ask' in i]].dropna().iloc[:13]
-    df_asks['side'] = 'ask'
-    df_asks.columns = ['price','size','cum_size','size_$','cum_size_$','average_fill','exc','side']
-    
-    df_all=pd.concat([df_asks.sort_values(by='price',ascending=False),df_bids]).rename_axis('from_mid')
-    df_all=df_all.reset_index()
-    df_all['from_mid'] = (df_all['from_mid']-1)
-
-    data_ob = df_all.to_dict('rows')
-
-    # order table columns
-    precision = len(str(ticks[ins]).split('.')[1]) if '.' in str(ticks[ins]) else int(str(ticks[ins]).split('e-')[1])
-    mid=(df_bids['price'].max() + df_asks['price'].min())/2
-    rounding = max(min(int(np.ceil(-np.log(mid*step)/np.log(10))), precision),0) if step !=0 else precision
-    r = int(np.ceil(-np.log(step)/np.log(10)))-2 if step !=0 else int(np.ceil(-np.log(10**-precision/mid)/np.log(10))-2)
-
-    base_sym = Xpto_sym[base] if base!='ALT' else Xpto_sym[ins[:3]]
-    quote_sym = '$' if inversed[ins] else '฿'
-
-    columns_ob=[{'id':'from_mid','name':'From Mid','type':'numeric','format':FormatTemplate.percentage(r).sign(Sign.positive)},
-                {'id':'price','name':'Price','type':'numeric','format':Format(precision=rounding,scheme=Scheme.fixed)},
-                {'id':'size','name':'Size ({})'.format(base_sym),'type':'numeric','format':Format(precision=2,scheme=Scheme.fixed)},
-                {'id':'cum_size','name': 'Size Total ({})'.format(base_sym),'type':'numeric','format':Format(precision=2,scheme=Scheme.fixed)},
-                {'id':'size_$','name':'Size ({})'.format(quote_sym),'type':'numeric',
-                'format':FormatTemplate.money(0) if inversed[ins] else Format(precision=2,scheme=Scheme.fixed,symbol=Symbol.yes,symbol_prefix=u'฿')},
-                {'id':'cum_size_$','name':'Size Total ({})'.format(quote_sym),'type':'numeric',
-                'format':FormatTemplate.money(0) if inversed[ins] else Format(precision=2,scheme=Scheme.fixed,symbol=Symbol.yes,symbol_prefix=u'฿')},
-                {'id':'average_fill','name':'Averge Fill','type':'numeric',
-                'format':Format(precision=rounding,scheme=Scheme.fixed)},
-                {'id':'exc','name':'Exchange','hidden':True},
-                {'id':'side','name':'side','hidden':True}]
-    return data_ob, columns_ob
-
-def build_spread_book(nob1,nob2):
-    bid_columns = [col for col in nob1.columns if 'bid' in col]
-    ask_columns = [col for col in nob1.columns if 'ask' in col]
-    nob2_asks = nob2[ask_columns].dropna()
-    nob1_bids = nob1 [bid_columns].dropna()
-    nob1_bids.columns = [c.replace('bid','') for c in nob1_bids.columns]
-    nob2_asks.columns = [c.replace('ask','') for c in nob2_asks.columns]
-    spread_book_asks = pd.DataFrame(columns=nob2_asks.columns,index = range((len(nob2_asks)+len(nob1_bids))+1))
-    nob2_bids = nob2[bid_columns].dropna()
-    nob1_asks = nob1 [ask_columns].dropna()
-    nob1_asks.columns = [c.replace('ask','') for c in nob1_asks.columns]
-    nob2_bids.columns = [c.replace('bid','') for c in nob2_bids.columns]
-    spread_book_bids = pd.DataFrame(columns=nob2_bids.columns,index= range((len(nob2_bids)+len(nob1_asks))+1))
-    #build ask side
-    i = 0
-    while len(nob1_bids)>1 and len(nob2_asks) >1:
-        trade_buy = (nob2_asks.iloc[0,:-1]-nob1_bids.iloc[0,:-1])
-        #trade_buy=trade_buy.append(pd.Series([nob2_asks.iloc[0,-1]+'/'+nob1_bids.iloc[0,-1]],index = ['s_exc']))
-        ask_emptied = True if trade_buy[3]<0 else False
-        trade_buy [1:-1] = nob2_asks.iloc[0,1:-2] if ask_emptied else nob1_bids.iloc[0,1:-2]
-        spread_book_asks.iloc[i]=trade_buy
-        if ask_emptied :
-            nob2_asks = nob2_asks.drop(nob2_asks.index[0])
-            nob1_bids.iloc[0,1:-2] =  nob1_bids.iloc[0,1:-2] - trade_buy[1:-1]
-        else:
-            nob1_bids = nob1_bids.drop(nob1_bids.index[0])
-            nob2_asks.iloc[0,1:-2] = nob2_asks.iloc[0,1:-2] - trade_buy[1:-1]
-        i+=1
-    #build bid side
-    i = 0
-    while len(nob1_asks)*len(nob2_bids) !=0:
-        trade_sell = (nob2_bids.iloc[0,:-1]-nob1_asks.iloc[0,:-1])
-        #trade_sell=trade_sell.append(pd.Series([nob2_bids.iloc[0,-1]+'/'+nob1_asks.iloc[0,-1]],index = ['s_exc']))
-        bid_emptied = True if trade_sell[3]<0 else False
-        trade_sell [1:-1] = nob2_bids.iloc[0,1:-2].astype(float) if bid_emptied else nob1_asks.iloc[0,1:-2].astype(float)
-        spread_book_bids.iloc[i]=trade_sell
-        if bid_emptied :
-            nob2_bids = nob2_bids.drop(nob2_bids.index[0])
-            nob1_asks.iloc[0,1:-2] =  nob1_asks.iloc[0,1:-1]-trade_sell[1:-1]
-        else:
-            nob1_asks = nob1_asks.drop(nob1_asks.index[0])
-            nob2_bids.iloc[0,1:-2] =  nob2_bids.iloc[0,1:-1]-trade_sell[1:-1]
-        i+=1
-    spread_book_asks.columns = ask_columns
-    spread_book_bids.columns = bid_columns
-    spread_book_asks['cum_ask_size'] = spread_book_asks['ask_size'].cumsum()
-    spread_book_bids['cum_bid_size'] = spread_book_bids['bid_size'].cumsum()
-    spread_book_asks['cum_ask_size_$'] = spread_book_asks['ask_size_$'].cumsum()
-    spread_book_bids['cum_bid_size_$'] = spread_book_bids['bid_size_$'].cumsum()
-    spread_book = pd.concat([spread_book_asks,spread_book_bids],sort=False).astype(float)
-    spread_book['asks_exc'] = nob2_asks.iloc[0,-1]+'/'+nob1_bids.iloc[0,-1]
-    spread_book['bids_exc'] = nob2_asks.iloc[0,-1]+'/'+nob1_bids.iloc[0,-1]
-    
-    return spread_book
 
 title = 'Spreads'
 
@@ -316,7 +217,7 @@ def update_spread_pair_label(ins1_ex,ins1,ins2_ex,ins2):
              Input('spread-ins1-ex','value'),Input('spread-ins2-ex','value'),Input('spread-interval-component','n_intervals')])
 def update_data(ins1,ins2,ex1,ex2,n):
     now = dt.datetime.now()
-    ob1, ob2 = get_order_books(ins1,{ex1:exch_dict[ex1]}), get_order_books(ins2,{ex2:exch_dict[ex2]})
+    ob1, ob2 = fob.get_order_books(ins1,{ex1:exch_dict[ex1]}), fob.get_order_books(ins2,{ex2:exch_dict[ex2]})
     save_this = (ob1, ob2, now.strftime("%Y-%m-%d  %H:%M:%S"))
     return json.dumps(save_this)
 
@@ -339,16 +240,16 @@ def update_tables(order_books, base, ins1, ex1, ins2, ex2, cutoff, step, ob1_las
     ob1 = {key:order_books[0][key] for key in order_books[0] if key in ex1}
     ob2 = {key:order_books[1][key] for key in order_books[1] if key in ex2}
     
-    nob1 = build_book(ob1,ins1,[ex1],cutoff,step)
-    nob2 = build_book(ob2,ins2,[ex2],cutoff,step)
+    nob1 = fob.build_book(ob1,ins1,[ex1],cutoff,step)
+    nob2 = fob.build_book(ob2,ins2,[ex2],cutoff,step)
     # Orderbooks Formatting
-    data1, columns1 = process_ob_for_dashtable(base, ins1, nob1, step)
+    data1, columns1 = fob.process_ob_for_dashtable(base, ins1, nob1, step)
     ob1_new_time = dt.datetime.now().strftime('%X')
-    data2, columns2 = process_ob_for_dashtable(base, ins2, nob2, step)
+    data2, columns2 = fob.process_ob_for_dashtable(base, ins2, nob2, step)
     ob2_new_time = dt.datetime.now().strftime('%X')
 
     # Spreadbook Formatting
-    df = build_spread_book(nob1,nob2)
+    df = fob.build_spread_book(nob1,nob2)
     df_bids = df[[i for i in df.columns if 'bid' in i ]].dropna().iloc[:13]
     df_bids['side'] = 'bid'
     df_bids.columns=['price','size','cum_size','size_$','cum_size_$','average_fill','exc','side']

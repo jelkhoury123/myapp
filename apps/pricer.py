@@ -18,7 +18,7 @@ import pandas as pd
 import sys
 sys.path.append('..')
 
-from deribit_api2 import get_data
+from deribit_api3 import get_data
 from models import BSprice, BSgreeks, BSiv, otm, vvv, vvv_fitter
 
 from app import app

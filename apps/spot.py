@@ -550,7 +550,7 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step,last_upda
     # Load Data
     step = 10**(step-2)/10000 if step !=0 else step          
     relative = x_scale == 'Rel'
-    currency = y_scale == 'Currency'
+    currency = y_scale == 'Ccy'
     order_books = json.loads(order_books)[0]
     order_books = {key:order_books[key] for key in order_books if key in exchanges}
 
