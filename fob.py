@@ -45,10 +45,12 @@ Xpto_main = ['BTC','ETH']
 #Alt coins
 Xpto_alt = ['ADA','BCH','EOS','LTC','TRX','XRP']
 #Symbols
-Xpto_sym = {i:i for i in Xpto_alt}
-Xpto_sym.update({'BTC':'฿','ETH':'⧫'})
+Sym = {i:i for i in Xpto_alt}
+Sym.update({'BTC':'฿','ETH':'⧫'})
 
 Fiat = ['USD','EUR','GBP','CHF','HKD','JPY','CNH']
+Fiat_sym ={'USD':'$','EUR':'€','GBP':'£','CHF':'CHF','HKD':'HKD','JPY':'JP ¥','CNH':'CN ¥'}
+Sym.update(Fiat_sym)
 
 def get_d1_instruments():
     '''
@@ -96,7 +98,7 @@ instruments,inversed, ticks = get_d1_instruments()
 deribit_d1_ins , bitmex_d1_ins = instruments['deribit'], instruments['bitmex']
 
 
-def get_exchanges_for_ins(ins):
+def get_exchanges_for_ins(ins,exch_dict):
     '''input: an instrument 
         output: a dictionary of ccxt exchange objects were the instrument is listed
     '''
@@ -119,13 +121,17 @@ def get_order_books(ins,ex,size=100):
         {'bids': [[price,quantity]],'asks':[[price,quantity]]}
         Deribit needs a 10 multiplier 
     '''
-    if not 'deribit' in ex.keys():
-        order_books = {key: value.fetch_order_book(ins,limit=size,
-        params={'full':1,'level':3,'limit_bids':0,'limit_asks':0,'type':'both'}) for key,value in ex.items() }
-    else:
-        order_books={}
-        order_books['deribit']=my_deribit.get_order_book(ins,size*2)
-    
+    order_books={}
+    standard_call= {key:value for key, value in ex.items() if key not in ('binance','bitfinex','deribit')}
+    order_books.update({key: value.fetch_order_book(ins,limit=size,
+                        params={'full':1,'level':3,'limit_bids':0,'limit_asks':0,'type':'both'})
+                        for key,value in standard_call.items()})
+    if 'binance' in ex:
+        order_books.update({'binance' : ex['binance'].fetch_order_book(ins,limit=1000)})
+    if 'bitfinex' in ex:
+        order_books.update({'bitfinex': ex['bitfinex'].fetch_order_book(ins,limit=2000)})
+    if 'deribit' in ex:
+        order_books.update({'deribit': my_deribit.get_order_book(ins,size*2)})
     return order_books
 
 def aggregate_order_books(dict_of_order_books):
@@ -146,7 +152,7 @@ def aggregate_order_books(dict_of_order_books):
     agg_dict_order_book['asks'] = (pd.DataFrame(asks)).sort_values(by=0,ascending=True).values.tolist()
     return agg_dict_order_book
 
-def normalize_order_book(ins,order_book, cutoff = 0.1, step = 0.001):
+def normalize_order_book(order_book, cutoff = 0.1, step = 0.001, is_inverse=False):
 
     '''
     ins is needed to determine if inverse
@@ -167,49 +173,21 @@ def normalize_order_book(ins,order_book, cutoff = 0.1, step = 0.001):
     except:
         agg = False
 
-    if ins in inversed:
-        if  inversed[ins]:
-            bid_side = pd.DataFrame(order_book['bids'], columns = ['bid', 'bid_size_$', 'exc'])
-            bid_side['cum_bid_size_$'] = bid_side['bid_size_$'].cumsum()
-            ask_side = pd.DataFrame(order_book['asks'], columns = ['ask', 'ask_size_$', 'exc'])
-            ask_side['cum_ask_size_$'] = ask_side['ask_size_$'].cumsum()
-            ref = (bid_side['bid'][0] + ask_side['ask'][0])/2
-            bid_side['bid%'] = round(bid_side['bid']/ref, rounding) if agg else bid_side['bid']/ref
-            ask_side['ask%'] = round(ask_side['ask']/ref, rounding) if agg else ask_side['ask']/ref
-            bid_side = bid_side[bid_side['bid%']>=1-cutoff]
-            ask_side = ask_side[ask_side['ask%']<=1+cutoff]
-            bid_side['bid_size'] = bid_side['bid_size_$']/bid_side['bid']
-            bid_side['cum_bid_size'] = bid_side['bid_size'].cumsum()
-            ask_side['ask_size'] = ask_side['ask_size_$']/ask_side['ask']
-            ask_side['cum_ask_size'] = ask_side['ask_size'].cumsum()
-        else:
-            bid_side = pd.DataFrame(order_book['bids'], columns = ['bid', 'bid_size', 'exc'])
-            bid_side['cum_bid_size'] = bid_side['bid_size'].cumsum()
-            ask_side = pd.DataFrame(order_book['asks'], columns = ['ask', 'ask_size', 'exc'])
-            ask_side['cum_ask_size'] = ask_side['ask_size'].cumsum()
-            ref = (bid_side['bid'][0] + ask_side['ask'][0])/2
-            bid_side['bid%'] = round(bid_side['bid']/ref, rounding) if agg else bid_side['bid']/ref
-            ask_side['ask%'] = round(ask_side['ask']/ref, rounding) if agg else ask_side['ask']/ref
-            bid_side = bid_side[bid_side['bid%']>=1-cutoff]
-            ask_side = ask_side[ask_side['ask%']<=1+cutoff]
-            bid_side['bid_size_$'] = bid_side['bid_size']*bid_side['bid']
-            bid_side['cum_bid_size_$'] = bid_side['bid_size_$'].cumsum()
-            ask_side['ask_size_$'] = ask_side['ask_size']*ask_side['ask']
-            ask_side['cum_ask_size_$'] = ask_side['ask_size_$'].cumsum()
-    else:
-        bid_side = pd.DataFrame(order_book['bids'], columns = ['bid', 'bid_size', 'exc'])
-        bid_side['cum_bid_size'] = bid_side['bid_size'].cumsum()
-        ask_side = pd.DataFrame(order_book['asks'], columns = ['ask', 'ask_size', 'exc'])
-        ask_side['cum_ask_size'] = ask_side['ask_size'].cumsum()
-        ref = (bid_side['bid'][0] + ask_side['ask'][0])/2
-        bid_side['bid%'] = round(bid_side['bid']/ref, rounding) if agg else bid_side['bid']/ref
-        ask_side['ask%'] = round(ask_side['ask']/ref, rounding) if agg else ask_side['ask']/ref
-        bid_side = bid_side[bid_side['bid%']>=1-cutoff]
-        ask_side = ask_side[ask_side['ask%']<=1+cutoff]
-        bid_side['bid_size_$'] = bid_side['bid_size']*bid_side['bid']
-        bid_side['cum_bid_size_$'] = bid_side['bid_size_$'].cumsum()
-        ask_side['ask_size_$'] = ask_side['ask_size']*ask_side['ask']
-        ask_side['cum_ask_size_$'] = ask_side['ask_size_$'].cumsum()
+    base,quote =('_$','') if  is_inverse else ('','_$')
+    
+    bid_side = pd.DataFrame(order_book['bids'], columns = ['bid', 'bid_size'+base, 'exc'])
+    bid_side['cum_bid_size'+base] = bid_side['bid_size'+base].cumsum()
+    ask_side = pd.DataFrame(order_book['asks'], columns = ['ask', 'ask_size'+base, 'exc'])
+    ask_side['cum_ask_size'+base] = ask_side['ask_size'+base].cumsum()
+    ref = (bid_side['bid'][0] + ask_side['ask'][0])/2
+    bid_side['bid%'] = round(bid_side['bid']/ref, rounding) if agg else bid_side['bid']/ref
+    ask_side['ask%'] = round(ask_side['ask']/ref, rounding) if agg else ask_side['ask']/ref
+    bid_side = bid_side[bid_side['bid%']>=1-cutoff]
+    ask_side = ask_side[ask_side['ask%']<=1+cutoff]
+    bid_side['bid_size'+quote] = bid_side['bid_size'+base]/bid_side['bid'] if is_inverse else bid_side['bid_size'+base]*bid_side['bid']
+    bid_side['cum_bid_size'+quote] = bid_side['bid_size'+quote].cumsum()
+    ask_side['ask_size'+quote] = ask_side['ask_size'+base]/ask_side['ask'] if is_inverse else ask_side['ask_size'+base]*ask_side['ask']
+    ask_side['cum_ask_size'+quote] = ask_side['ask_size'+quote].cumsum()
 
     normalized_bids = pd.DataFrame(bid_side.groupby('bid%',sort=False).mean()['bid'])
     normalized_bids.columns = ['bid']
@@ -230,11 +208,11 @@ def normalize_order_book(ins,order_book, cutoff = 0.1, step = 0.001):
     book=pd.concat([normalized_asks,normalized_bids],sort=False)
     return book
 
-def build_book(order_books,ins,exchanges,cutoff=.1,step=0.001):
+def build_book(order_books,exchanges,cutoff=.1,step=0.001,is_inverse=False):
     ''' gets order books aggreagtes them then normalizes
         returns a dataframe
     '''
-    return normalize_order_book(ins,aggregate_order_books({key:order_books[key] for key in exchanges}),cutoff,step)
+    return normalize_order_book(aggregate_order_books({key:order_books[key] for key in exchanges}),cutoff,step,is_inverse)
 
 def build_stack_book(normalized_order_book,step=0.001):
     ''' gets order books aggreagtes them then normalizes
@@ -251,7 +229,6 @@ def build_stack_book(normalized_order_book,step=0.001):
 
     mid=(df_bids['price'].max() + df_asks['price'].min())/2
     df_all=pd.concat([df_asks.sort_values(by='price',ascending=False),df_bids]).rename_axis('from_mid')
-    #rounding = [int(np.ceil(-np.log(mid*step)/np.log(10)))+1]
     df_all=df_all.reset_index()
     df_all['from_mid'] = (df_all['from_mid']-1)
 
@@ -268,8 +245,8 @@ def process_ob_for_dashtable(base, ins, normalized_order_book, step=.001):
     rounding = max(min(int(np.ceil(-np.log(mid*step)/np.log(10))), precision),0) if step !=0 else precision
     r = int(np.ceil(-np.log(step)/np.log(10)))-2 if step !=0 else int(np.ceil(-np.log(10**-precision/mid)/np.log(10))-2)
 
-    base_sym = Xpto_sym[base] if base!='ALT' else Xpto_sym[ins[:3]]
-    quote_sym = '$' if inversed[ins] else '฿'
+    base_sym = Sym[base] if base!='ALT' else Sym[ins[:3]]
+    quote_sym = Sym['USD'] if inversed[ins] else '฿'
 
     columns_ob=[{'id':'from_mid','name':'From Mid','type':'numeric','format':FormatTemplate.percentage(r).sign(Sign.positive)},
                 {'id':'price','name':'Price','type':'numeric','format':Format(precision=rounding,scheme=Scheme.fixed)},
@@ -285,9 +262,9 @@ def process_ob_for_dashtable(base, ins, normalized_order_book, step=.001):
                 {'id':'side','name':'side','hidden':True}]
     return data_ob, columns_ob
 
-def plot_book(order_books,ins, exc, relative=True, currency=True, cutoff=.1):
+def plot_book(order_books,ins, exc, relative=True, currency=True, cutoff=.1,is_inverse=False):
     ''' plots the order book as a v shape chart '''
-    order_book = build_book(order_books,ins,exc,cutoff)
+    order_book = build_book(order_books,exc,cutoff,is_inverse=is_inverse)
     best_bid = round(order_book['bid'].max(),4)
     best_ask = round(order_book['ask'].min(),4)
     if currency:
@@ -312,12 +289,12 @@ def plot_book(order_books,ins, exc, relative=True, currency=True, cutoff=.1):
     figure = go.Figure(data=data,layout=layout)
     return figure
 
-def plot_depth(order_books,ins, exc, relative=True, currency=True, cutoff=.1):
+def plot_depth(order_books,ins, exc, relative=True, currency=True, cutoff=.1,is_inverse=False):
     if currency:
         col_to_chart = '_$'
     else:
         col_to_chart = ''
-    order_book = build_book(order_books,ins,exc,cutoff)
+    order_book = build_book(order_books,exc,cutoff,is_inverse=is_inverse)
     mid = (order_book['bid'].max()+order_book['ask'].min())/2 if relative else 1
     trace_asks = go.Scatter(x=order_book['cum_ask_size'+col_to_chart],y=order_book['average_ask_fill']/mid,
                         name='ask depth',marker=dict(color='rgba(203,24,40,0.6)'),fill='tozerox',fillcolor='rgba(203,24,40,0.2)')

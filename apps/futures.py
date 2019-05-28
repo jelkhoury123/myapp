@@ -15,7 +15,7 @@ import sys
 sys.path.append('..') # add parent directory to the path to import app
 import deribit_api3 as my_deribit
 from requests.auth import HTTPBasicAuth
-import fob 
+import fob   # module to handle order books
 from app import app  # app is the main app which will be run on the server in index.py
 
 # If websocket use diginex.ccxt library and reduce update interval from 7 to 5 secs
@@ -119,7 +119,7 @@ layout =  html.Div(style={'marginLeft':35,'marginRight':35},
                                     children =[html.Div(className='row',
                                                         children=[
                                                             html.H6(id='fut-ins-name',children=[], style={'display':'inline-block'}),html.H6(children=['('], style={'display':'inline-block','margin-left':'5px'}),
-                                                            html.H6(id='fut-exchanges',children=[i for i in fob.get_exchanges_for_ins('BTC/USD').keys()],style={'display':'inline-block'}),html.H6(children=[') -'], style={'display':'inline-block','margin-right':'5px'}),
+                                                            html.H6(id='fut-exchanges',children=[i for i in fob.get_exchanges_for_ins('BTC/USD',exch_dict).keys()],style={'display':'inline-block'}),html.H6(children=[') -'], style={'display':'inline-block','margin-right':'5px'}),
                                                             html.H6(id='fut-ins-inv',children=[],)]),
                                                 html.Hr(style={'border-color':'#cb1828'}),
                                                 html.Div(children=[dash_table.DataTable(id='fut-order-table',
@@ -281,7 +281,7 @@ def update_ins(radio_button_value, exch_dropdown_value):
 def update_exchanges_options(ins):
     inv = 'Inverse' if inversed[ins] else 'Non-Inverse'
     style = {'color': 'red', 'display':'inline-block','font-weight':'bold'} if inversed[ins] else {'color': 'green', 'display':'inline-block','font-weight':'bold'}
-    return [exch for exch in fob.get_exchanges_for_ins(ins).keys()],ins,inv, style
+    return [exch for exch in fob.get_exchanges_for_ins(ins,exch_dict).keys()],ins,inv, style
 
 @app.callback(Output('the-fut-data','children'),
             [Input('fut-ins','value'),Input('fut-exchanges','children'),Input('fut-interval-component','n_intervals')])
@@ -318,11 +318,11 @@ def update_page(order_books,base,ins,exchanges,x_scale,y_scale,cutoff,step, last
     order_books= {key:order_books[key] for key in order_books if key in exchanges}
 
     # 1. Plot Book and Depth
-    book_plot = fob.plot_book(order_books,ins,exchanges,relative,currency,cutoff)
-    depth_plot = fob.plot_depth(order_books,ins,exchanges,relative,currency,cutoff)
+    book_plot = fob.plot_book(order_books,ins,exchanges,relative,currency,cutoff,inversed[ins])
+    depth_plot = fob.plot_depth(order_books,ins,exchanges,relative,currency,cutoff,inversed[ins])
 
     # order table data
-    df =  fob.build_book(order_books,ins,exchanges,cutoff,step)
+    df =  fob.build_book(order_books,exchanges,cutoff,step,inversed[ins])
 
     df_bids = df[[i for i in df.columns if 'bid' in i]].dropna().iloc[:13]
     df_bids['side'] = 'bid'

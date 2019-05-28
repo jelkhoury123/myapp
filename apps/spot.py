@@ -16,8 +16,9 @@ import datetime as dt
 
 import sys
 sys.path.append('..')
+import deribit_api3 as my_deribit
 import fob
-from app import app
+from app import app # app is the main app which will be run on the server in index.py
 
 ENABLE_WEBSOCKET_SUPPORT = False
 refresh_rate = 3 if ENABLE_WEBSOCKET_SUPPORT else 6
@@ -32,32 +33,36 @@ spot_exchanges = ['coinbasepro','bitstamp','kraken','liquid','binance',
 
 exchanges = spot_exchanges 
 
-exch_dict={}
+spot_exch_dict={}
 for x in exchanges:
     if x == "binance":
-        exch_dict[x] = ccxt.binance({
+        spot_exch_dict[x] = ccxt.binance({
             "apiKey": "NBVxbseHg7qnbwJxCsye6ywL4Ut9IwdBL3sSknsYXu4MMDzGzcMTcUrzQ0HY89r7",
             "secret": "IvYRol5M6J9wsVNCibUSPoaLlJyP70KATDhuelmWh3w9yJxyDx5RD2SvbMTw3Ibb",
         })
     else:
-        exec('exch_dict[x]=ccxt.{}()'.format(x))
+        exec('spot_exch_dict[x]=ccxt.{}()'.format(x))
 
-#Xpto = ['ADA','BTC','BCH','EOS','ETH','LTC','TRX','XRP','USDC']
 Xpto_main = ['BTC','ETH']
-Xpto_alt = ['ADA','BCH','EOS','LTC','TRX','XRP', 'USDC']
+#Alt coins
+Xpto_alt = ['ADA','BCH','EOS','LTC','TRX','XRP']
+#Symbols
+Sym = {i:i for i in Xpto_alt}
+Sym.update({'BTC':'฿','ETH':'⧫'})
+
 Fiat = ['USD','EUR','GBP','CHF','HKD','JPY','CNH']
-Xpto_sym = {'BTC':'฿','ETH':'⧫','ADA':'ADA','BCH':'BCH','EOS':'EOS','LTC':'LTC','TRX':'TRX','XRP':'XRP', 'USDC':'USDC',
-'USD':'$','EUR':'€','GBP':'£','CHF':'CHF','HKD':'HKD','JPY':'JP ¥','CNH':'CN ¥'}
+Fiat_sym ={'USD':'$','EUR':'€','GBP':'£','CHF':'CHF','HKD':'HKD','JPY':'JP ¥','CNH':'CN ¥'}
+Sym.update(Fiat_sym)
+
 xpto_fiat = [xpto+'/'+ fiat for xpto in Xpto_main+Xpto_alt for fiat in Fiat]
 xpto_xpto = [p[0]+'/'+p[1] for p in itertools.permutations(Xpto_main+Xpto_alt,2)]
-#inversed= {}
-all_pairs = set(sum(itertools.chain([*exch_dict[x].load_markets()] for x in exch_dict),[])) 
+all_pairs = set(sum(itertools.chain([*spot_exch_dict[x].load_markets()] for x in spot_exch_dict),[])) 
 pairs = list(set(xpto_fiat + xpto_xpto) & set(all_pairs))
 pairs.sort()
 
-def load_exchanges():
+def load_tick_sizes():
     ticks = {}
-    for ex, ex_obj in exch_dict.items():
+    for ex, ex_obj in spot_exch_dict.items():
         ticks[ex] = {}
         market = getattr(ex_obj,'markets')
         for pair in pairs:
@@ -67,107 +72,7 @@ def load_exchanges():
                 ticks[ex].update({pair:[base_precision,quote_precision]})
     return ticks
 
-ticks = load_exchanges()
-
-def get_exchanges_for_pair(pair):
-    '''input: a pair
-    output: a dictionary of ccxt exchange objects of the exchanges listing the pair
-    '''
-    return {x:exch_dict[x] for x in exch_dict if pair in list(exch_dict[x].load_markets().keys())}
-def get_pairs_for_exchange(ex):
-    '''input: an exchange
-    output: a list of pairs '''
-    d={}
-    exec('d[ex]=ccxt.{}()'.format(ex))
-    d[ex].load_markets()
-    return d[ex].symbols
-
-def get_order_books(pair,ex):
-    '''pair is the pair string ,'BTC/USD'...
-        returns a dictionary of order books for the pair
-        special case for binance which API fails if # of parmaeters > 2
-    '''
-    nobinance= {key:value for key, value in ex.items() if key != 'binance'and  key != 'bitfinex'}
-    order_books = {key: value.fetch_order_book(pair,limit=2000,
-                        params={'full':1,'level':3,'limit_bids':0,'limit_asks':0,'type':'both'})
-                        for key,value in nobinance.items() }
-    if 'binance' in ex:
-        order_books['binance'] =  ex['binance'].fetch_order_book(pair,limit=1000)
-    if 'bitfinex' in ex:
-        order_books['bitfinex'] =  ex['bitfinex'].fetch_order_book(pair,limit=2000)
-    return order_books
-
-def aggregate_order_books(dict_of_order_books):
-    '''dict_of_order_books is a dict of ccxt like order_books
-        retuns a ccxt like dictionary order book sorted by prices 
-    '''
-    agg_dict_order_book = {}
-    bids = []
-    for x in dict_of_order_books:
-        for bid in dict_of_order_books[x]['bids']:
-            bids.append(bid+[x])
-    asks = []
-    for x in dict_of_order_books:
-        for ask in dict_of_order_books[x]['asks']:
-            asks.append(ask+[x])
-    agg_dict_order_book['bids'] = (pd.DataFrame(bids)).sort_values(by=0,ascending=False).values.tolist()
-    agg_dict_order_book['asks'] = (pd.DataFrame(asks)).sort_values(by=0,ascending=True).values.tolist()
-    return agg_dict_order_book
-
-def normalize_order_book(order_book, cutoff=.1, step=.001):
-    '''order_book is a dictionary with keys bids asks timestamp datetime ...
-    where bids is a list of list [[bid,bid_size]] and 
-    asks is a list of list [[ask,ask_size]]
-    this is returned by ccxt.'exchange'.fetch_order_book()
-    returns a dataframe with columns [ask, ask_size, ask_size_$, cum_ask_size_$, bid_, bid_size, bid_size_$, cum_bid_size_$]
-    and an index of shape np.linspace(1 - cutoff,1 + cutoff ,step =.001 ~ 10 bps)
-    '''
-    try:
-        rounding = int(np.ceil(-np.log(step)/np.log(10)))
-        agg = True
-    except:
-        agg = False
-    bid_side = pd.DataFrame(order_book['bids'],columns=['bid','bid_size','exc'])
-    bid_side['cum_bid_size'] = bid_side['bid_size'].cumsum()
-    ask_side = pd.DataFrame(order_book['asks'],columns=['ask','ask_size','exc'])
-    ask_side['cum_ask_size'] = ask_side['ask_size'].cumsum()
-
-    ref = (bid_side['bid'][0]+ask_side['ask'][0])/2
-    bid_side['bid%'] = round(bid_side['bid']/ref,rounding) if agg else bid_side['bid']/ref
-    ask_side['ask%'] = round(ask_side['ask']/ref,rounding) if agg else ask_side['ask']/ref
-
-    bid_side = bid_side[bid_side['bid%']>=1-cutoff]
-    ask_side = ask_side[ask_side['ask%']<=1+cutoff]
-    
-    bid_side['bid_size_$'] = bid_side['bid_size']*bid_side['bid']
-    bid_side['cum_bid_size_$'] = bid_side['bid_size_$'].cumsum()
-    ask_side['ask_size_$'] = ask_side['ask_size']*ask_side['ask']
-    ask_side['cum_ask_size_$'] = ask_side['ask_size_$'].cumsum()
-
-    normalized_bids = pd.DataFrame(bid_side.groupby('bid%',sort=False).mean()['bid'])
-    normalized_bids.columns = ['bid']
-    normalized_bids['bid_size'] = bid_side.groupby('bid%',sort=False).sum()['bid_size']
-    normalized_bids['cum_bid_size'] = normalized_bids['bid_size'].cumsum()
-    normalized_bids['bid_size_$'] = bid_side.groupby('bid%',sort=False).sum()['bid_size_$']
-    normalized_bids['cum_bid_size_$'] = normalized_bids['bid_size_$'].cumsum()
-    normalized_bids['average_bid_fill'] = normalized_bids['cum_bid_size_$']/normalized_bids['cum_bid_size']
-    normalized_bids['bids_exc']=bid_side.groupby('bid%',sort=False).apply(lambda x: x['exc'].loc[x['bid_size'].idxmax()])
-    normalized_asks = pd.DataFrame(ask_side.groupby('ask%',sort=False).mean()['ask'])
-    normalized_asks.columns = ['ask']
-    normalized_asks['ask_size'] = ask_side.groupby('ask%',sort=False).sum()['ask_size']
-    normalized_asks['cum_ask_size'] = normalized_asks['ask_size'].cumsum()
-    normalized_asks['ask_size_$'] = ask_side.groupby('ask%',sort=False).sum()['ask_size_$']
-    normalized_asks['cum_ask_size_$'] = normalized_asks['ask_size_$'].cumsum()
-    normalized_asks['average_ask_fill']=normalized_asks['cum_ask_size_$']/normalized_asks['cum_ask_size']
-    normalized_asks['asks_exc']=ask_side.groupby('ask%',sort=False).apply(lambda x: x['exc'].loc[x['ask_size'].idxmax()])
-    book=pd.concat([normalized_asks,normalized_bids],sort=False)
-    return book
-
-def build_book(order_books, pair, exchanges, cutoff=.1, step=0.001):
-    ''' gets order books aggreagtes them then normalizes
-        returns a dataframe
-    '''
-    return normalize_order_book(aggregate_order_books({key:order_books[key] for key in exchanges}), cutoff, step)
+ticks = load_tick_sizes()
 
 title = 'Spot'
 
@@ -227,7 +132,7 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
                                 html.Div(className='five columns',
                                     children =[html.H6('Choose Exchange'),
                                                 dcc.Dropdown(id='spot-exchanges',multi=True,style={'border-color':'#cb1828'},
-                                                value = list(get_exchanges_for_pair('BTC/USD').keys())),
+                                                value = list(fob.get_exchanges_for_ins('BTC/USD',spot_exch_dict).keys())),
                                                 #html.H6('Order Book'),
                                                 html.Hr(style={'border-color':'#cb1828'}),
                                                 #html.Div(id='spot-order-table'),
@@ -378,14 +283,14 @@ def update_time(n,order_books):
 @app.callback([Output('spot-exchanges','options'),Output('spot-exchanges','value')],
             [Input('spot-pairs','value')])
 def update_exchanges_options(pair):
-    return [{'label':exch,'value':exch} for exch in get_exchanges_for_pair(pair).keys()] ,list(get_exchanges_for_pair(pair).keys())
+    return [{'label':exch,'value':exch} for exch in fob.get_exchanges_for_ins(pair,spot_exch_dict).keys()] ,list(fob.get_exchanges_for_ins(pair,spot_exch_dict).keys())
 
 @app.callback(Output('the-ob-data','children'),
             [Input('spot-pairs','value'),Input('spot-exchanges','value'),Input('ob-interval-component','n_intervals')])
 def update_data(pair,ex,n):
     now = dt.datetime.now()
-    ex = {x:exch_dict[x] for x in ex}
-    order_books = get_order_books(pair,ex)
+    ex = {x:spot_exch_dict[x] for x in ex}
+    order_books = fob.get_order_books(pair,ex,size=2000)
     save_this = (order_books,now.strftime("%Y-%m-%d  %H:%M:%S"))
     return json.dumps(save_this)
 
@@ -419,11 +324,11 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step,last_upda
     order_books = {key:order_books[key] for key in order_books if key in exchanges}
 
     # 1. Plot Book and Depth
-    book_plot = fob.plot_book(order_books, pair, exchanges, relative, currency, cutoff)
-    depth_plot = fob.plot_depth(order_books, pair, exchanges, relative, currency, cutoff)
+    book_plot = fob.plot_book(order_books, pair,exchanges, relative, currency, cutoff)
+    depth_plot = fob.plot_depth(order_books, pair,exchanges, relative, currency, cutoff)
 
     # 2. Order Table
-    df =  build_book(order_books, pair, exchanges, cutoff, step)
+    df =  fob.build_book(order_books, exchanges, cutoff, step)
 
     df_bids = df[[i for i in df.columns if 'bid' in i]].dropna().iloc[:13]
     df_bids['side'] = 'bid'
@@ -446,7 +351,7 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step,last_upda
     r = int(np.ceil(-np.log(step)/np.log(10)))-2 if step !=0 else int(np.ceil(-np.log(10**-max_price_precision[1]/mid)/np.log(10))-2)
 
     # Symbols for columns
-    base_sym, quote_sym = Xpto_sym[pair.split('/')[0]], Xpto_sym[pair.split('/')[1]]
+    base_sym, quote_sym = Sym[pair.split('/')[0]], Sym[pair.split('/')[1]]
 
     columns_ob=[{'id':'from_mid','name':'From Mid','type':'numeric','format':FormatTemplate.percentage(r).sign(Sign.positive)},
             {'id':'price','name':'Price','type':'numeric','format':Format(precision=rounding,scheme=Scheme.fixed)},
