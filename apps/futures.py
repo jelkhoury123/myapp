@@ -13,21 +13,22 @@ import datetime as dt
 import os
 import sys
 sys.path.append('..') # add parent directory to the path to import app
-import deribit_api3 as my_deribit
-from requests.auth import HTTPBasicAuth
 import fob   # module to handle order books
 from app import app  # app is the main app which will be run on the server in index.py
 
 # If websocket use diginex.ccxt library and reduce update interval from 7 to 5 secs
 
 ENABLE_WEBSOCKET_SUPPORT = False
-refresh_rate = 3 if ENABLE_WEBSOCKET_SUPPORT else 4
+refresh_rate = 3 #if ENABLE_WEBSOCKET_SUPPORT else 4
 if ENABLE_WEBSOCKET_SUPPORT:
     import diginex.ccxt.websocket_support as ccxt
 else:
     import ccxt
-    
+
+#-----------------   
 # Define my world
+#-----------------
+
 deriv_exchanges =['deribit','bitmex']
 
 exchanges =  deriv_exchanges 
@@ -35,17 +36,15 @@ exchanges =  deriv_exchanges
 api_keys = json.loads(os.environ.get('api_keys'))
 api_secrets = json.loads(os.environ.get('api_secrets'))
 
-auth = HTTPBasicAuth(api_keys['deribit'], api_secrets['deribit'])
-
-exch_dict={}
+deriv_exch_dict={}
 for x in exchanges:
-    exec('exch_dict[x]=ccxt.{}({{"apiKey": "{}", "secret": "{}"}})'.format(x, api_keys[x], api_secrets[x]))
-    #exec('exch_dict[x]=ccxt.{}()'.format(x))
-for xccxt in exch_dict.values():
+    exec('deriv_exch_dict[x]=ccxt.{}({{"apiKey": "{}", "secret": "{}"}})'.format(x, api_keys[x], api_secrets[x]))
+    #exec('deriv_exch_dict[x]=ccxt.{}()'.format(x))
+for xccxt in deriv_exch_dict.values():
     xccxt.load_markets()
 
-deribit = exch_dict['deribit']
-bitmex = exch_dict['bitmex']
+deribit = deriv_exch_dict['deribit']
+bitmex = deriv_exch_dict['bitmex']
 
 Xpto_main = ['BTC','ETH']
 Xpto_alt = ['ADA','BCH','EOS','LTC','TRX','XRP']
@@ -54,6 +53,10 @@ Xpto_sym.update({'BTC':'฿','ETH':'⧫'})
             
 instruments, inversed, ticks = fob.get_d1_instruments()
 deribit_d1_ins , bitmex_d1_ins = instruments['deribit'], instruments['bitmex']
+
+#-----------------------
+# Define page layout
+#-----------------------
 
 title = 'Futures'
 
@@ -118,8 +121,10 @@ layout =  html.Div(style={'marginLeft':35,'marginRight':35},
                                 html.Div(className='five columns',
                                     children =[html.Div(className='row',
                                                         children=[
-                                                            html.H6(id='fut-ins-name',children=[], style={'display':'inline-block'}),html.H6(children=['('], style={'display':'inline-block','margin-left':'5px'}),
-                                                            html.H6(id='fut-exchanges',children=[i for i in fob.get_exchanges_for_ins('BTC/USD',exch_dict).keys()],style={'display':'inline-block'}),html.H6(children=[') -'], style={'display':'inline-block','margin-right':'5px'}),
+                                                            html.H6(id='fut-ins-name',children=[], style={'display':'inline-block'}),
+                                                            html.H6(children=['('], style={'display':'inline-block','margin-left':'5px'}),
+                                                            html.H6(id='fut-exchanges',children=[i for i in fob.get_exchanges_for_ins('BTC/USD',deriv_exch_dict).keys()],style={'display':'inline-block'}),
+                                                            html.H6(children=[') -'], style={'display':'inline-block','margin-right':'5px'}),
                                                             html.H6(id='fut-ins-inv',children=[],)]),
                                                 html.Hr(style={'border-color':'#cb1828'}),
                                                 html.Div(children=[dash_table.DataTable(id='fut-order-table',
@@ -258,12 +263,16 @@ layout =  html.Div(style={'marginLeft':35,'marginRight':35},
                         ]),
                         ])
 
+#-------------------
+#Define Callbacks
+#-------------------
+
 @app.callback([Output('fut-sup-exchanges','options'),Output('fut-sup-exchanges','value')],
             [Input('choose-base','value')])
 def update_sup_exchs(radio_button_value):
     sup_exchanges = [i for i in instruments if radio_button_value in instruments[i].keys()]
     options_sup_exchanges=[{'label':exch,'value':exch} for exch in sup_exchanges]
-    value_sup_exchanges=sup_exchanges
+    value_sup_exchanges = sup_exchanges
     return options_sup_exchanges, value_sup_exchanges
 
 @app.callback([Output('fut-ins','options'),Output('fut-ins','value')],
@@ -276,19 +285,22 @@ def update_ins(radio_button_value, exch_dropdown_value):
     value=ins[0]
     return options, value
 
-@app.callback([Output('fut-exchanges','children'), Output('fut-ins-name','children'), Output('fut-ins-inv','children'), Output('fut-ins-inv','style')],
+@app.callback([Output('fut-exchanges','children'), Output('fut-ins-name','children'),
+             Output('fut-ins-inv','children'), Output('fut-ins-inv','style')],
             [Input('fut-ins','value')])
 def update_exchanges_options(ins):
     inv = 'Inverse' if inversed[ins] else 'Non-Inverse'
-    style = {'color': 'red', 'display':'inline-block','font-weight':'bold'} if inversed[ins] else {'color': 'green', 'display':'inline-block','font-weight':'bold'}
-    return [exch for exch in fob.get_exchanges_for_ins(ins,exch_dict).keys()],ins,inv, style
+    style = {'color': 'green', 'display':'inline-block','font-weight':'bold'}
+    if inversed[ins] : style.update({'color':'red'})
+    return [exch for exch in fob.get_exchanges_for_ins(ins,deriv_exch_dict).keys()],ins,inv, style
 
 @app.callback(Output('the-fut-data','children'),
-            [Input('fut-ins','value'),Input('fut-exchanges','children'),Input('fut-interval-component','n_intervals')])
+            [Input('fut-ins','value'),Input('fut-exchanges','children'),
+            Input('fut-interval-component','n_intervals')])
 def update_data(ins,ex,n):
     now = dt.datetime.now()
-    ex = {x:exch_dict[x] for x in ex}
-    order_books = fob.get_order_books(ins,ex,2000)
+    ex = {x:deriv_exch_dict[x] for x in ex}
+    order_books = fob.get_order_books(ins,ex,size=2000)
     save_this = (order_books,now.strftime("%Y-%m-%d  %H:%M:%S"))
     return json.dumps(save_this)
 
@@ -309,20 +321,21 @@ def update_time(n,order_books):
             Input('fut-cutoff','value'),Input('fut-agg-level','value')],
             [State('fut-ob-new-timestamp', 'children')],)
 def update_page(order_books,base,ins,exchanges,x_scale,y_scale,cutoff,step, last_update):
-
+    now = dt.datetime.now()
     #load data
     step = 10**(step-2)/10000 if step !=0 else step
     relative = x_scale == 'Rel'
     currency = y_scale == 'Ccy'
     order_books = json.loads(order_books)[0]
     order_books= {key:order_books[key] for key in order_books if key in exchanges}
+    order_book = fob.build_book(order_books,exchanges,cutoff,step,inversed[ins])
 
     # 1. Plot Book and Depth
-    book_plot = fob.plot_book(order_books,ins,exchanges,relative,currency,cutoff,inversed[ins])
-    depth_plot = fob.plot_depth(order_books,ins,exchanges,relative,currency,cutoff,inversed[ins])
+    book_plot = fob.plot_book(order_book,ins,exchanges,relative,currency,cutoff,inversed[ins])
+    depth_plot = fob.plot_depth(order_book,ins,exchanges,relative,currency,cutoff,inversed[ins])
 
     # order table data
-    df =  fob.build_book(order_books,exchanges,cutoff,step,inversed[ins])
+    df =  order_book
 
     df_bids = df[[i for i in df.columns if 'bid' in i]].dropna().iloc[:13]
     df_bids['side'] = 'bid'
@@ -384,7 +397,7 @@ def update_page(order_books,base,ins,exchanges,x_scale,y_scale,cutoff,step, last
                 ) for liq_df in liq_dfs]
     except:
         liq_tables=[0]*3
- 
+    print('update page run time',dt.datetime.now(),dt.datetime.now()-now)
     return (book_plot,depth_plot,data_ob,columns_ob) + tuple(liq_tables) + (last_update, ob_new_time)
 
 @app.callback(Output('fut-diplay-tick','children'),
@@ -436,7 +449,7 @@ def update_output(submit_n_clicks,order):
         order = pd.DataFrame(order).iloc[0]
         side ='buy' if order['B/S'] =='B' else 'sell'
         exc = order['exc']
-        exch_dict[exc].create_limit_order(order['Ins'],side, str(order['Qty']), str(order['Limit price']))
+        deriv_exch_dict[exc].create_limit_order(order['Ins'],side, str(order['Qty']), str(order['Limit price']))
         return 'Order sent'
 
 @app.callback([Output('open-orders','data'),Output('open-orders','columns')],
@@ -458,7 +471,7 @@ def cancel_order(active_cell,open_orders):
     if active_cell[1] == 8:
         exc = oo.iloc[active_cell[0]]['ex']
         order_id = oo.iloc[active_cell[0]]['id']
-        exch_dict[exc].cancel_order(order_id)
+        deriv_exch_dict[exc].cancel_order(order_id)
         return 'Canceled {}  {}'.format(order_id ,exc)
     else:
         return active_cell

@@ -306,7 +306,7 @@ def update_data(pair,ex,n):
             Input('spot-cutoff','value'),Input('spot-agg-level','value')],
             [State('spot-ob-new-timestamp', 'children')])
 def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step,last_update):
-
+    now = dt.datetime.now()
     # Get max price precision
     precision = [ticks[ex][pair] for ex in exchanges]
     max_price_precision = max(precision)
@@ -322,13 +322,13 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step,last_upda
     currency = y_scale == 'Ccy'
     order_books = json.loads(order_books)[0]
     order_books = {key:order_books[key] for key in order_books if key in exchanges}
-
+    order_book = fob.build_book(order_books, exchanges, cutoff, step)
     # 1. Plot Book and Depth
-    book_plot = fob.plot_book(order_books, pair,exchanges, relative, currency, cutoff)
-    depth_plot = fob.plot_depth(order_books, pair,exchanges, relative, currency, cutoff)
+    book_plot = fob.plot_book(order_book, pair,exchanges, relative, currency, cutoff)
+    depth_plot = fob.plot_depth(order_book, pair,exchanges, relative, currency, cutoff)
 
     # 2. Order Table
-    df =  fob.build_book(order_books, exchanges, cutoff, step)
+    df =  order_book
 
     df_bids = df[[i for i in df.columns if 'bid' in i]].dropna().iloc[:13]
     df_bids['side'] = 'bid'
@@ -385,7 +385,7 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step,last_upda
                 style_as_list_view=True) for liq_df in liq_dfs]
     except:
         liq_tables=[0]*3
- 
+    print('update page run time',dt.datetime.now(),dt.datetime.now()-now)
     return (book_plot,depth_plot,data_ob,columns_ob) + tuple(liq_tables) + (last_update, ob_new_time, tickers_data, tickers_data_columns)
 
 @app.callback(Output('spot-order-to-send','data'),

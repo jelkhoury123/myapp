@@ -48,4 +48,4 @@ def display_page(pathname):
                         style={'height':'100%','width':'100%'})
 
 if __name__ == '__main__':
-    app.run_server(threaded = True)
+    app.run_server(threaded = True,port = 8080)

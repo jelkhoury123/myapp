@@ -18,7 +18,7 @@ sys.path.append('../dashapp') # add parent directory to the path to import app
 import fob
 from app import app
 
-# If websocket use diginex.ccxt library and reduce update interval from 7 to 5 secs
+# If websocket use diginex.ccxt library and reduce update interval from 10 to 5 secs
 
 ENABLE_WEBSOCKET_SUPPORT = False
 refresh_rate = 5 if ENABLE_WEBSOCKET_SUPPORT else 10

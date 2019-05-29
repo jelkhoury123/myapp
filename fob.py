@@ -262,9 +262,9 @@ def process_ob_for_dashtable(base, ins, normalized_order_book, step=.001):
                 {'id':'side','name':'side','hidden':True}]
     return data_ob, columns_ob
 
-def plot_book(order_books,ins, exc, relative=True, currency=True, cutoff=.1,is_inverse=False):
+def plot_book(order_book,ins, exc, relative=True, currency=True, cutoff=.1,is_inverse=False):
     ''' plots the order book as a v shape chart '''
-    order_book = build_book(order_books,exc,cutoff,is_inverse=is_inverse)
+    #order_book = build_book(order_books,exc,cutoff,is_inverse=is_inverse)
     best_bid = round(order_book['bid'].max(),4)
     best_ask = round(order_book['ask'].min(),4)
     if currency:
@@ -289,12 +289,12 @@ def plot_book(order_books,ins, exc, relative=True, currency=True, cutoff=.1,is_i
     figure = go.Figure(data=data,layout=layout)
     return figure
 
-def plot_depth(order_books,ins, exc, relative=True, currency=True, cutoff=.1,is_inverse=False):
+def plot_depth(order_book,ins, exc, relative=True, currency=True, cutoff=.1,is_inverse=False):
     if currency:
         col_to_chart = '_$'
     else:
         col_to_chart = ''
-    order_book = build_book(order_books,exc,cutoff,is_inverse=is_inverse)
+    #order_book = build_book(order_books,exc,cutoff,is_inverse=is_inverse)
     mid = (order_book['bid'].max()+order_book['ask'].min())/2 if relative else 1
     trace_asks = go.Scatter(x=order_book['cum_ask_size'+col_to_chart],y=order_book['average_ask_fill']/mid,
                         name='ask depth',marker=dict(color='rgba(203,24,40,0.6)'),fill='tozerox',fillcolor='rgba(203,24,40,0.2)')
