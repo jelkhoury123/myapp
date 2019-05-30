@@ -18,8 +18,9 @@ from app import app  # app is the main app which will be run on the server in in
 
 # If websocket use diginex.ccxt library and reduce update interval from 7 to 5 secs
 
-ENABLE_WEBSOCKET_SUPPORT = False
-refresh_rate = 3 #if ENABLE_WEBSOCKET_SUPPORT else 4
+ENABLE_WEBSOCKET_SUPPORT = True
+refresh_rate_ob = .5 #if ENABLE_WEBSOCKET_SUPPORT else 4
+refresh_rate = 3
 if ENABLE_WEBSOCKET_SUPPORT:
     import diginex.ccxt.websocket_support as ccxt
 else:
@@ -53,7 +54,7 @@ Xpto_sym.update({'BTC':'฿','ETH':'⧫'})
             
 instruments, inversed, ticks = fob.get_d1_instruments()
 deribit_d1_ins , bitmex_d1_ins = instruments['deribit'], instruments['bitmex']
-
+# 
 #-----------------------
 # Define page layout
 #-----------------------
@@ -252,6 +253,11 @@ layout =  html.Div(style={'marginLeft':35,'marginRight':35},
                                 html.Div(id='the-fut-data',style={'display':'none'}),
                                 dcc.Interval(
                                     id='fut-interval-component',
+                                    interval = refresh_rate_ob * 1000, # in milliseconds= 7 or 10 seconds
+                                    n_intervals=0
+                                    ),
+                                dcc.Interval(
+                                    id='fut-interval2-component',
                                     interval = refresh_rate * 1000, # in milliseconds= 7 or 10 seconds
                                     n_intervals=0
                                     ),
@@ -331,8 +337,8 @@ def update_page(order_books,base,ins,exchanges,x_scale,y_scale,cutoff,step, last
     order_book = fob.build_book(order_books,exchanges,cutoff,step,inversed[ins])
 
     # 1. Plot Book and Depth
-    book_plot = fob.plot_book(order_book,ins,exchanges,relative,currency,cutoff,inversed[ins])
-    depth_plot = fob.plot_depth(order_book,ins,exchanges,relative,currency,cutoff,inversed[ins])
+    book_plot = fob.plot_book(order_book,ins,exchanges,relative,currency,cutoff)
+    depth_plot = fob.plot_depth(order_book,ins,exchanges,relative,currency,cutoff)
 
     # order table data
     df =  order_book
@@ -453,7 +459,7 @@ def update_output(submit_n_clicks,order):
         return 'Order sent'
 
 @app.callback([Output('open-orders','data'),Output('open-orders','columns')],
-            [Input('fut-interval-component','n_intervals')])
+            [Input('fut-interval2-component','n_intervals')])
 def update_open(interval):
     oo = fob.get_open_orders()
     oo['Cancel']='X'
@@ -477,7 +483,7 @@ def cancel_order(active_cell,open_orders):
         return active_cell
 
 @app.callback([Output('closed-orders','data'),Output('closed-orders','columns')],
-            [Input('fut-interval-component','n_intervals'),Input('fut-go-back-date','date')])
+            [Input('fut-interval2-component','n_intervals'),Input('fut-go-back-date','date')])
 def update_closed(interval,go_back_date):
     #year = pd.to_datetime('today').year
     #month = pd.to_datetime('today').month
@@ -496,7 +502,7 @@ def update_closed(interval,go_back_date):
     return data,columns
 
 @app.callback(Output('balances','children'),
-            [Input('fut-interval-component','n_intervals')])
+            [Input('fut-interval2-component','n_intervals')])
 def update_balance(interval):
     b = fob.get_balances().reset_index().round(4)
     b.columns=['Ccy',*b.columns[1:]]

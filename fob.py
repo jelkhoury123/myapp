@@ -52,6 +52,10 @@ Fiat = ['USD','EUR','GBP','CHF','HKD','JPY','CNH']
 Fiat_sym ={'USD':'$','EUR':'€','GBP':'£','CHF':'CHF','HKD':'HKD','JPY':'JP ¥','CNH':'CN ¥'}
 Sym.update(Fiat_sym)
 
+#coin statistics
+coinmar = ccxt.coinmarketcap()
+coindata=coinmar.load_markets()
+
 def get_d1_instruments():
     '''
     returns a tuple of 
@@ -155,7 +159,6 @@ def aggregate_order_books(dict_of_order_books):
 def normalize_order_book(order_book, cutoff = 0.1, step = 0.001, is_inverse=False):
 
     '''
-    ins is needed to determine if inverse
     order_book is a dictionary with keys bids asks timestamp datetime ...
     where bids is a list of list [[bid,bid_size,exchange]] and 
     asks is a list of list [[ask,ask_size,exchange]]
@@ -173,7 +176,7 @@ def normalize_order_book(order_book, cutoff = 0.1, step = 0.001, is_inverse=Fals
     except:
         agg = False
 
-    base,quote =('_$','') if  is_inverse else ('','_$')
+    base,quote =('_$','') if is_inverse else ('','_$')
     
     bid_side = pd.DataFrame(order_book['bids'], columns = ['bid', 'bid_size'+base, 'exc'])
     bid_side['cum_bid_size'+base] = bid_side['bid_size'+base].cumsum()
@@ -196,7 +199,8 @@ def normalize_order_book(order_book, cutoff = 0.1, step = 0.001, is_inverse=Fals
     normalized_bids['bid_size_$'] = bid_side.groupby('bid%',sort=False).sum()['bid_size_$']
     normalized_bids['cum_bid_size_$'] = normalized_bids['bid_size_$'].cumsum()
     normalized_bids['average_bid_fill'] = normalized_bids['cum_bid_size_$']/normalized_bids['cum_bid_size']
-    normalized_bids['bids_exc']=bid_side.groupby('bid%',sort=False).apply(lambda x: x['exc'].loc[x['bid_size'].idxmax()])
+    normalized_bids['bids_exc']=bid_side.loc[bid_side.sort_values('bid_size').drop_duplicates('bid%',keep='last').index.sort_values()]['exc'].values
+
     normalized_asks = pd.DataFrame(ask_side.groupby('ask%',sort=False).mean()['ask'])
     normalized_asks.columns = ['ask']
     normalized_asks['ask_size'] = ask_side.groupby('ask%',sort=False).sum()['ask_size']
@@ -204,7 +208,8 @@ def normalize_order_book(order_book, cutoff = 0.1, step = 0.001, is_inverse=Fals
     normalized_asks['ask_size_$'] = ask_side.groupby('ask%',sort=False).sum()['ask_size_$']
     normalized_asks['cum_ask_size_$'] = normalized_asks['ask_size_$'].cumsum()
     normalized_asks['average_ask_fill']=normalized_asks['cum_ask_size_$']/normalized_asks['cum_ask_size']
-    normalized_asks['asks_exc']=ask_side.groupby('ask%',sort=False).apply(lambda x: x['exc'].loc[x['ask_size'].idxmax()])
+    normalized_asks['asks_exc']=ask_side.loc[ask_side.sort_values('ask_size').drop_duplicates('ask%',keep='last').index.sort_values()]['exc'].values
+
     book=pd.concat([normalized_asks,normalized_bids],sort=False)
     return book
 
@@ -262,46 +267,33 @@ def process_ob_for_dashtable(base, ins, normalized_order_book, step=.001):
                 {'id':'side','name':'side','hidden':True}]
     return data_ob, columns_ob
 
-def plot_book(order_book,ins, exc, relative=True, currency=True, cutoff=.1,is_inverse=False):
+def plot_book(order_book,ins, exc, relative=True, currency=True, cutoff=.1):
     ''' plots the order book as a v shape chart '''
-    #order_book = build_book(order_books,exc,cutoff,is_inverse=is_inverse)
     best_bid = round(order_book['bid'].max(),4)
     best_ask = round(order_book['ask'].min(),4)
-    if currency:
-        col_to_chart = '_$'
-    else:
-        col_to_chart = ''
-    if relative:
-        trace_asks=go.Scatter(x=order_book.index,y=order_book['cum_ask_size'+col_to_chart],
+    col_to_chart = '_$' if currency else ''
+    x = order_book.index if relative else order_book['ask'].fillna(0)+order_book['bid'].fillna(0)
+    trace_asks=dict(x=x,y=order_book['cum_ask_size'+col_to_chart],
                         name='asks',marker=dict(color='rgba(203,24,40,0.6)'),fill='tozeroy',fillcolor='rgba(203,24,40,0.2)')
-        trace_bids=go.Scatter(x=order_book.index,y=order_book['cum_bid_size'+col_to_chart],
+    trace_bids=dict(x=x,y=order_book['cum_bid_size'+col_to_chart],
                         name='bids',marker=dict(color='rgba(0,0,255,0.6)'),fill='tozeroy',fillcolor='rgba(0,0,255,0.2)')     
-    else:
-        trace_asks=go.Scatter(x=order_book['ask'].fillna(0)+order_book['bid'].fillna(0),y=order_book['cum_ask_size'+col_to_chart],
-                        name='asks',marker=dict(color='rgba(203,24,40,0.6)'),fill='tozeroy',fillcolor='rgba(203,24,40,0.2)')
-        trace_bids=go.Scatter(x=order_book['ask'].fillna(0)+order_book['bid'].fillna(0),y=order_book['cum_bid_size'+col_to_chart],
-                        name='bids',marker=dict(color='rgba(0,0,255,0.6)'),fill='tozeroy',fillcolor='rgba(0,0,255,0.2)')
-        
-    layout = go.Layout(title = ' - '.join(exc),
+    layout = dict(title = ' - '.join(exc),
                          xaxis = dict(title= ins +'  ' + str(best_bid)+' - '+ str(best_ask)),
                          showlegend=False, margin = {'t':25,'r': 10,'l': 25})
     data=[trace_asks,trace_bids]
-    figure = go.Figure(data=data,layout=layout)
+    figure = {'data':data,'layout':layout}
     return figure
 
-def plot_depth(order_book,ins, exc, relative=True, currency=True, cutoff=.1,is_inverse=False):
-    if currency:
-        col_to_chart = '_$'
-    else:
-        col_to_chart = ''
-    #order_book = build_book(order_books,exc,cutoff,is_inverse=is_inverse)
+def plot_depth(order_book,ins, exc, relative=True, currency=True, cutoff=.1):
+
+    col_to_chart = '_$' if currency else ''
     mid = (order_book['bid'].max()+order_book['ask'].min())/2 if relative else 1
-    trace_asks = go.Scatter(x=order_book['cum_ask_size'+col_to_chart],y=order_book['average_ask_fill']/mid,
+    trace_asks = dict(x=order_book['cum_ask_size'+col_to_chart],y=order_book['average_ask_fill']/mid,
                         name='ask depth',marker=dict(color='rgba(203,24,40,0.6)'),fill='tozerox',fillcolor='rgba(203,24,40,0.2)')
-    trace_bids = go.Scatter(x=-order_book['cum_bid_size'+col_to_chart],y=order_book['average_bid_fill']/mid,
+    trace_bids = dict(x=-order_book['cum_bid_size'+col_to_chart],y=order_book['average_bid_fill']/mid,
                         name='bid depth',marker=dict(color='rgba(0,0,255,0.6)'),fill='tozerox',fillcolor='rgba(0,0,255,0.2)')
     data = [trace_asks,trace_bids]
-    figure = go.Figure(data=data, layout={'title': 'Market Depth','showlegend':False,'margin' : {'t':25,'r': 10,'l': 25}})
+    figure = dict(data=data, layout={'title': 'Market Depth','showlegend':False,'margin' : {'t':25,'r': 10,'l': 25}})
     return figure
 
 def order_fill(order_book_df, order_sizes,in_ccy=True):
@@ -333,8 +325,6 @@ def order_fill(order_book_df, order_sizes,in_ccy=True):
  
 def get_liq_params(normalized,pair,step):
     #coin stats
-    coinmar = ccxt.coinmarketcap()
-    coindata=coinmar.load_markets()
     total_coins=float(coindata[pair]['info']['available_supply'])  #number of coins floating
     order_span = (1,10,20,30,40)
     clip = total_coins/(100*1000)   #10^-5 of number of coins available is my standard order size 
