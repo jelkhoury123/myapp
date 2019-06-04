@@ -13,6 +13,7 @@ import numpy as np
 import itertools
 import json
 import datetime as dt 
+import os
 
 import sys
 sys.path.append('..')
@@ -21,25 +22,26 @@ import fob
 from app import app # app is the main app which will be run on the server in index.py
 
 ENABLE_WEBSOCKET_SUPPORT = False
-refresh_rate = 3 if ENABLE_WEBSOCKET_SUPPORT else 6
+refresh_rate_ob = 2 #if ENABLE_WEBSOCKET_SUPPORT else 3
+refresh_rate = 8
 if ENABLE_WEBSOCKET_SUPPORT:
     import diginex.ccxt.websocket_support as ccxt
 else:
     import ccxt
     
 # Define my world
-spot_exchanges = ['coinbasepro','bitstamp','kraken','liquid','binance',
-                    'bitbank','bittrex','kucoin2','poloniex']
+spot_exchanges = ['coinbasepro','kraken','liquid','binance',
+                    'bitbank','bittrex','kucoin2','poloniex','bitfinex']
 
 exchanges = spot_exchanges 
 
+api_keys = json.loads(os.environ.get('api_keys'))
+api_secrets = json.loads(os.environ.get('api_secrets'))
+
 spot_exch_dict={}
 for x in exchanges:
-    if x == "binance":
-        spot_exch_dict[x] = ccxt.binance({
-            "apiKey": "NBVxbseHg7qnbwJxCsye6ywL4Ut9IwdBL3sSknsYXu4MMDzGzcMTcUrzQ0HY89r7",
-            "secret": "IvYRol5M6J9wsVNCibUSPoaLlJyP70KATDhuelmWh3w9yJxyDx5RD2SvbMTw3Ibb",
-        })
+    if x in api_keys:
+        exec('spot_exch_dict[x]=ccxt.{}({{"apiKey": "{}", "secret": "{}"}})'.format(x, api_keys[x], api_secrets[x]))
     else:
         exec('spot_exch_dict[x]=ccxt.{}()'.format(x))
 
@@ -67,7 +69,7 @@ def load_tick_sizes():
         market = getattr(ex_obj,'markets')
         for pair in pairs:
             if pair in market.keys():
-                base_precision = market[pair]['precision']['amount']
+                base_precision = market[pair]['precision']['amount'] if not 'none' else 10
                 quote_precision = market[pair]['precision']['price']
                 ticks[ex].update({pair:[base_precision,quote_precision]})
     return ticks
@@ -189,7 +191,7 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
                                         )]),
                                         html.Div(id='spot-active'),
                                         html.Button(id='spot-send-order',style={'display':'none'}),
-                                        dcc.ConfirmDialog(id='confirm',message = 'Submit Order ? '),
+                                        dcc.ConfirmDialog(id='spot-confirm',message = 'Submit Order ? '),
                                         html.Div(id='spot-output-confirm',style={'margin-top':'30px'},children=['Here']),
                                         html.Div([dcc.Tabs(id='spot-orders',className = 'custom-tabs-container',parent_className='custom-tabs',
                                          children=[
@@ -214,13 +216,13 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
                                             ]),
                                             dcc.Tab(label='Closed Orders',className='custom-tab', selected_className='custom-tab--selected',
                                             children = [
-                                                # dcc.DatePickerSingle(
-                                                #     id='spot-go-back-date',
-                                                #     max_date_allowed=dt.datetime(pd.to_datetime('today').year, pd.to_datetime('today').month, pd.to_datetime('today').day),
-                                                #     date=dt.datetime(pd.to_datetime('today').year, pd.to_datetime('today').month, pd.to_datetime('today').day),
-                                                #     display_format='D-M-Y',
-                                                #     style = {'margin-top':'10px'},
-                                                # ),
+                                                dcc.DatePickerSingle(
+                                                    id='spot-go-back-date',
+                                                     max_date_allowed=dt.datetime.strftime(dt.datetime.today(), '%Y-%m-%d'),
+                                                     date=dt.datetime.strftime(dt.datetime.today(), '%Y-%m-%d'),
+                                                     display_format='D-M-Y',
+                                                     style = {'margin-top':'10px'},
+                                                 ),
                                                 html.Hr(style={'border-color':'#cb1828', 'margin-top':'10px'}),
                                                 html.Div(style = {'overflow':'hidden'},
                                                 children = [dash_table.DataTable(
@@ -229,7 +231,7 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
                                                 'border-collapse':'collapse'},
                                                 style_header={'fontWeight':'bold'},
                                                 style_cell={'textAlign':'center','width':'12%'},
-                                                style_as_list_view=True,
+                                                style_as_list_view=False,
                                                 style_data_conditional=[
                                                                 { 'if': {'row_index':'odd'},
                                                                 'backgroundColor':'rgb(242,242,242)'}
@@ -252,7 +254,12 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
                                 html.Div(id='the-ob-data',style={'display':'none'}),
                                 dcc.Interval(
                                     id='ob-interval-component',
-                                    interval = refresh_rate * 1000, # in milliseconds= 7 or 10 seconds
+                                    interval = refresh_rate_ob * 1000, # in milliseconds
+                                    n_intervals=0
+                                    ),
+                                dcc.Interval(
+                                    id='spot-interval2-component',
+                                    interval = refresh_rate * 1000, # in milliseconds
                                     n_intervals=0
                                     ),
                                 dcc.Interval(
@@ -286,11 +293,12 @@ def update_exchanges_options(pair):
     return [{'label':exch,'value':exch} for exch in fob.get_exchanges_for_ins(pair,spot_exch_dict).keys()] ,list(fob.get_exchanges_for_ins(pair,spot_exch_dict).keys())
 
 @app.callback(Output('the-ob-data','children'),
-            [Input('spot-pairs','value'),Input('spot-exchanges','value'),Input('ob-interval-component','n_intervals')])
-def update_data(pair,ex,n):
+            [Input('spot-pairs','value'),Input('spot-exchanges','value'),
+            Input('spot-cutoff','value'),Input('ob-interval-component','n_intervals')])
+def update_data(pair,ex,cutoff,n):
     now = dt.datetime.now()
     ex = {x:spot_exch_dict[x] for x in ex}
-    order_books = fob.get_order_books(pair,ex,size=2000)
+    order_books = fob.get_order_books(pair,ex,size=1000,cutoff=cutoff)
     save_this = (order_books,now.strftime("%Y-%m-%d  %H:%M:%S"))
     return json.dumps(save_this)
 
@@ -307,6 +315,7 @@ def update_data(pair,ex,n):
             [State('spot-ob-new-timestamp', 'children')])
 def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step,last_update):
     now = dt.datetime.now()
+    now0 = now
     # Get max price precision
     precision = [ticks[ex][pair] for ex in exchanges]
     max_price_precision = max(precision)
@@ -315,7 +324,6 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step,last_upda
     tickers_data = pd.DataFrame(data = precision, index = exchanges).drop(0, axis=1).rename_axis('exchange')
     tickers_data = tickers_data.T.to_dict('rows')
     tickers_data_columns = [{'id':i,'name':i} for i in exchanges]
-
     # Load Data
     step = 10**(step-2)/10000 if step !=0 else step          
     relative = x_scale == 'Rel'
@@ -363,7 +371,7 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step,last_upda
             {'id':'exc','name':'Exchange'},
             {'id':'side','name':'side','hidden':True}]
     try:
-        liq_dfs = [df.round(10) for df in fob.get_liq_params(df,pair,step)]
+        liq_dfs = [df for df in fob.get_liq_params(df,pair,step)]
         col_format = {'bid':Format(precision=rounding,scheme=Scheme.fixed),
                       'ask':Format(precision=rounding,scheme=Scheme.fixed),
                       'mid':Format(precision=rounding,scheme=Scheme.fixed),
@@ -382,10 +390,10 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step,last_upda
                 style_header={'backgroundColor':'lightgrey','fontWeight':'bold'},
                 style_cell={'textAlign':'center','width':'10%'},
                 style_table={'border': 'thin lightgrey solid'},
-                style_as_list_view=True) for liq_df in liq_dfs]
+                ) for liq_df in liq_dfs]
     except:
         liq_tables=[0]*3
-    print('update page run time',dt.datetime.now(),dt.datetime.now()-now)
+    #print('update page run time',dt.datetime.now(),dt.datetime.now()-now0)
     return (book_plot,depth_plot,data_ob,columns_ob) + tuple(liq_tables) + (last_update, ob_new_time, tickers_data, tickers_data_columns)
 
 @app.callback(Output('spot-order-to-send','data'),
@@ -415,3 +423,82 @@ def update_button(order):
     else:
         style = {'display':'none'}
     return (text,style)
+
+@app.callback(Output('spot-confirm','displayed'),
+            [Input('spot-send-order','n_clicks')])
+def display_confirm(n_clicks):
+    return True
+
+@app.callback(Output('spot-output-confirm','children'),
+[Input('spot-confirm','submit_n_clicks')],
+[State('spot-order-to-send','data')])
+def update_output(submit_n_clicks,order):
+    if submit_n_clicks:
+        order = pd.DataFrame(order).iloc[0]
+        side ='buy' if order['B/S'] =='B' else 'sell'
+        exc = order['exc']
+        spot_exch_dict[exc].create_limit_order(order['Ins'],side, str(order['Qty']), str(order['Limit price']))
+        return 'Order sent'
+
+@app.callback([Output('spot-open-orders','data'),Output('spot-open-orders','columns')],
+            [Input('spot-interval2-component','n_intervals'),Input('spot-exchanges','value')])
+def update_open(interval,exc_list):
+    oo = fob.get_open_orders(exc_list)
+    oo['Cancel']='X'
+    data = oo.to_dict('rows')
+    names=['Id','Type','Ins','B/S','Qty','Price','State','Filled','Exc','Cancel']
+    columns =[{'id':id,'name':name} for id,name in zip(oo.columns,names)]
+    columns[0]['hidden'] = True
+    return data,columns
+
+@app.callback(Output('spot-cancel-confirm','children'),
+            [Input('spot-open-orders','active_cell')],
+            [State ('spot-open-orders','data')])
+def cancel_order(active_cell,open_orders):
+    oo=pd.DataFrame(open_orders)
+    if active_cell[1] == 8:
+        exc = oo.iloc[active_cell[0]]['ex']
+        order_id = oo.iloc[active_cell[0]]['id']
+        spot_exch_dict[exc].cancel_order(order_id)
+        return 'Canceled {}  {}'.format(order_id ,exc)
+    else:
+        return active_cell
+
+@app.callback([Output('spot-closed-orders','data'),Output('spot-closed-orders','columns')],
+            [Input('spot-interval2-component','n_intervals'),Input('spot-go-back-date','date'),
+            Input('spot-exchanges','value')])
+def update_closed(interval,go_back_date,exc_list):
+    #year = pd.to_datetime('today').year
+    #month = pd.to_datetime('today').month
+    #day = pd.to_datetime('today').day
+    #midnight = pd.to_datetime(str(year)+'-'+str(month)+'-'+str(day)).timestamp()*10**3
+    go_back_date = go_back_date.split(' ')[0]
+    from_this_date = dt.datetime.strptime(go_back_date, '%Y-%m-%d').timestamp()*10**3
+    co = fob.get_closed_orders(from_this_date,exc_list)
+    #co['timestamp']=pd.to_datetime((co['timestamp']/10**3).round(0), unit='s')
+    co['timestamp']=pd.to_datetime(co['timestamp']/1000, unit='s')
+    co['timestamp']=co['timestamp'].dt.strftime('%d %b %H:%M:%S')
+    data = co.to_dict('rows')
+    names=['Id','Type','Ins','B/S','Qty','Price','Average','Filled','Time','Exc']
+    columns =[{'id':id,'name':name} for id,name in zip(co.columns,names)]
+    columns[0]['hidden'] = True
+    return data,columns
+
+@app.callback(Output('spot-balances','children'),
+            [Input('spot-interval2-component','n_intervals'),
+            Input('spot-exchanges','value')])
+def update_balance(interval,exc_list):
+    b = fob.get_balances(exc_list)
+    if b is not None:
+        b.reset_index(inplace = True)
+        b.round(4)
+        b.columns=['Ccy',*b.columns[1:]]
+        return dash_table.DataTable(
+                    data=b.to_dict('rows'),
+                    columns=[{'id': c,'name':c} for c in b.columns],
+                    style_header={'backgroundColor':'#DCDCDC','fontWeight':'bold'},
+                    style_cell={'textAlign':'center','width':'10%'},
+                    style_table={'border': '1px solid lightgrey','border-collapse':'collapse'},
+                    )
+    else:
+        return None

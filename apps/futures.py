@@ -39,8 +39,11 @@ api_secrets = json.loads(os.environ.get('api_secrets'))
 
 deriv_exch_dict={}
 for x in exchanges:
-    exec('deriv_exch_dict[x]=ccxt.{}({{"apiKey": "{}", "secret": "{}"}})'.format(x, api_keys[x], api_secrets[x]))
-    #exec('deriv_exch_dict[x]=ccxt.{}()'.format(x))
+    if x in api_keys:
+        exec('deriv_exch_dict[x]=ccxt.{}({{"apiKey": "{}", "secret": "{}"}})'.format(x, api_keys[x], api_secrets[x]))
+    else:
+        exec('deriv_exch_dict[x]=ccxt.{}()'.format(x))
+
 for xccxt in deriv_exch_dict.values():
     xccxt.load_markets()
 
@@ -225,8 +228,8 @@ layout =  html.Div(style={'marginLeft':35,'marginRight':35},
                                             children = [
                                                 dcc.DatePickerSingle(
                                                     id='fut-go-back-date',
-                                                    max_date_allowed=dt.datetime(pd.to_datetime('today').year, pd.to_datetime('today').month, pd.to_datetime('today').day),
-                                                    date=dt.datetime(pd.to_datetime('today').year, pd.to_datetime('today').month, pd.to_datetime('today').day),
+                                                    max_date_allowed=dt.datetime.strftime(dt.datetime.today(), '%Y-%m-%d'),
+                                                    date=dt.datetime.strftime(dt.datetime.today(), '%Y-%m-%d'),
                                                     display_format='D-M-Y',
                                                     style = {'margin-top':'10px'},
                                                 ),
@@ -253,12 +256,12 @@ layout =  html.Div(style={'marginLeft':35,'marginRight':35},
                                 html.Div(id='the-fut-data',style={'display':'none'}),
                                 dcc.Interval(
                                     id='fut-interval-component',
-                                    interval = refresh_rate_ob * 1000, # in milliseconds= 7 or 10 seconds
+                                    interval = refresh_rate_ob * 1000, # in milliseconds
                                     n_intervals=0
                                     ),
                                 dcc.Interval(
                                     id='fut-interval2-component',
-                                    interval = refresh_rate * 1000, # in milliseconds= 7 or 10 seconds
+                                    interval = refresh_rate * 1000, # in milliseconds
                                     n_intervals=0
                                     ),
                                 dcc.Interval(
@@ -302,11 +305,11 @@ def update_exchanges_options(ins):
 
 @app.callback(Output('the-fut-data','children'),
             [Input('fut-ins','value'),Input('fut-exchanges','children'),
-            Input('fut-interval-component','n_intervals')])
-def update_data(ins,ex,n):
+            Input('fut-cutoff','value'),Input('fut-interval-component','n_intervals')])
+def update_data(ins,ex,cutoff,n):
     now = dt.datetime.now()
     ex = {x:deriv_exch_dict[x] for x in ex}
-    order_books = fob.get_order_books(ins,ex,size=2000)
+    order_books = fob.get_order_books(ins,ex,size=2000,cutoff=cutoff)
     save_this = (order_books,now.strftime("%Y-%m-%d  %H:%M:%S"))
     return json.dumps(save_this)
 
@@ -328,6 +331,7 @@ def update_time(n,order_books):
             [State('fut-ob-new-timestamp', 'children')],)
 def update_page(order_books,base,ins,exchanges,x_scale,y_scale,cutoff,step, last_update):
     now = dt.datetime.now()
+    now0 = now
     #load data
     step = 10**(step-2)/10000 if step !=0 else step
     relative = x_scale == 'Rel'
@@ -335,11 +339,9 @@ def update_page(order_books,base,ins,exchanges,x_scale,y_scale,cutoff,step, last
     order_books = json.loads(order_books)[0]
     order_books= {key:order_books[key] for key in order_books if key in exchanges}
     order_book = fob.build_book(order_books,exchanges,cutoff,step,inversed[ins])
-
     # 1. Plot Book and Depth
     book_plot = fob.plot_book(order_book,ins,exchanges,relative,currency,cutoff)
     depth_plot = fob.plot_depth(order_book,ins,exchanges,relative,currency,cutoff)
-
     # order table data
     df =  order_book
 
@@ -357,7 +359,6 @@ def update_page(order_books,base,ins,exchanges,x_scale,y_scale,cutoff,step, last
 
     data_ob = df_all.to_dict('rows')
     ob_new_time = dt.datetime.now().strftime('%X')
-
     # Get rounidng digits for the table
     precision = len(str(ticks[ins]).split('.')[1]) if '.' in str(ticks[ins]) else int(str(ticks[ins]).split('e-')[1])
     mid=(df_bids['price'].max() + df_asks['price'].min())/2
@@ -403,7 +404,7 @@ def update_page(order_books,base,ins,exchanges,x_scale,y_scale,cutoff,step, last
                 ) for liq_df in liq_dfs]
     except:
         liq_tables=[0]*3
-    print('update page run time',dt.datetime.now(),dt.datetime.now()-now)
+    #print('update page run time',dt.datetime.now(),dt.datetime.now()-now0)
     return (book_plot,depth_plot,data_ob,columns_ob) + tuple(liq_tables) + (last_update, ob_new_time)
 
 @app.callback(Output('fut-diplay-tick','children'),
@@ -459,9 +460,9 @@ def update_output(submit_n_clicks,order):
         return 'Order sent'
 
 @app.callback([Output('open-orders','data'),Output('open-orders','columns')],
-            [Input('fut-interval2-component','n_intervals')])
-def update_open(interval):
-    oo = fob.get_open_orders()
+            [Input('fut-interval2-component','n_intervals'),Input('fut-exchanges','children')])
+def update_open(interval,exc_list):
+    oo = fob.get_open_orders(exc_list)
     oo['Cancel']='X'
     data = oo.to_dict('rows')
     names=['Id','Type','Ins','B/S','Qty','Price','State','Filled','Exc','Cancel']
@@ -483,15 +484,16 @@ def cancel_order(active_cell,open_orders):
         return active_cell
 
 @app.callback([Output('closed-orders','data'),Output('closed-orders','columns')],
-            [Input('fut-interval2-component','n_intervals'),Input('fut-go-back-date','date')])
-def update_closed(interval,go_back_date):
+            [Input('fut-interval2-component','n_intervals'),Input('fut-go-back-date','date'),
+            Input('fut-exchanges','children')])
+def update_closed(interval,go_back_date,exc_list):
     #year = pd.to_datetime('today').year
     #month = pd.to_datetime('today').month
     #day = pd.to_datetime('today').day
     #midnight = pd.to_datetime(str(year)+'-'+str(month)+'-'+str(day)).timestamp()*10**3
     go_back_date = go_back_date.split(' ')[0]
     from_this_date = dt.datetime.strptime(go_back_date, '%Y-%m-%d').timestamp()*10**3
-    co = fob.get_closed_orders(from_this_date)
+    co = fob.get_closed_orders(from_this_date,exc_list)
     #co['timestamp']=pd.to_datetime((co['timestamp']/10**3).round(0), unit='s')
     co['timestamp']=pd.to_datetime(co['timestamp']/1000, unit='s')
     co['timestamp']=co['timestamp'].dt.strftime('%d %b %H:%M:%S')
@@ -502,9 +504,10 @@ def update_closed(interval,go_back_date):
     return data,columns
 
 @app.callback(Output('balances','children'),
-            [Input('fut-interval2-component','n_intervals')])
-def update_balance(interval):
-    b = fob.get_balances().reset_index().round(4)
+            [Input('fut-interval2-component','n_intervals'),
+            Input('fut-sup-exchanges','value')])
+def update_balance(interval,exc_list):
+    b = fob.get_balances(exc_list).reset_index().round(4)
     b.columns=['Ccy',*b.columns[1:]]
     return dash_table.DataTable(
                 data=b.to_dict('rows'),

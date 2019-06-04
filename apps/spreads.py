@@ -21,7 +21,7 @@ from app import app
 # If websocket use diginex.ccxt library and reduce update interval from 10 to 5 secs
 
 ENABLE_WEBSOCKET_SUPPORT = False
-refresh_rate = 5 if ENABLE_WEBSOCKET_SUPPORT else 10
+refresh_rate = 5 if ENABLE_WEBSOCKET_SUPPORT else 2
 if ENABLE_WEBSOCKET_SUPPORT:
     import diginex.ccxt.websocket_support as ccxt
 else:
@@ -69,18 +69,25 @@ layout =  html.Div( className = 'row', style = {'marginLeft':35,'marginRight':35
                             value = [i for i in instruments.keys()],
                             style = {'border-color':'#cb1828'},
                             multi = True),]),
-        html.Div( className = 'three columns', children = [
-            html.Label('Price Agg (bps):', style = {'margin-bottom':'10px','font-size':'1.4rem','font-weight':'bold'}),
-            html.Div( className = 'row', style = {'width':'75%','font-size':'1.2rem'}, children = [
-                dcc.Slider( id='spread-agg-level',
-                            max = 4, step = 1, value = 0,
-                            marks = {i:str(10**(i-2) if i != 0 else 0) for i in range(0,5)})]),]),
+
+        html.Div( className = 'three columns',
+                 children = [
+                    html.Label('Price Agg (bps):', style = {'margin-bottom':'10px','font-size':'1.4rem','font-weight':'bold'}),
+                    html.Div( className = 'row', style = {'width':'75%','font-size':'1.2rem'},
+                            children = [
+                            dcc.Slider( id='spread-agg-level',
+                                max = 4, step = 1, value = 0,
+                                marks = {i:str(10**(i-2) if i != 0 else 0) for i in range(0,5)})]),
+                            ]
+                ),
         html.Div( className = 'three columns', children = [
             html.Label('Cutoff % :', style = {'margin-bottom':'10px','font-size':'1.4rem','font-weight':'bold'}),
             html.Div( className = 'row', style = {'width':'75%','font-size':'1.2rem'}, children = [
                 dcc.Slider( id = 'spread-cutoff',
                             min = .05, max = .3, step = .05, value = .1,
-                            marks = {round(j,2): str(round(j,2)) for j in list(np.arange(.05,.35,.05))})]),]),]),
+                            marks = {round(j,2): str(round(j,2)) for j in list(np.arange(.05,.35,.05))})]),]
+                ),]
+            ),
     html.Div(className = 'row', children = [
         html.Div(className = 'four columns', children = [
             html.Div( className = 'row', children = [
@@ -217,7 +224,7 @@ def update_spread_pair_label(ins1_ex,ins1,ins2_ex,ins2):
              Input('spread-ins1-ex','value'),Input('spread-ins2-ex','value'),Input('spread-interval-component','n_intervals')])
 def update_data(ins1,ins2,ex1,ex2,n):
     now = dt.datetime.now()
-    ob1, ob2 = fob.get_order_books(ins1,{ex1:exch_dict[ex1]}), fob.get_order_books(ins2,{ex2:exch_dict[ex2]})
+    ob1, ob2 = fob.get_order_books(ins1,{ex1:exch_dict[ex1]},size=25), fob.get_order_books(ins2,{ex2:exch_dict[ex2]},size=25)
     save_this = (ob1, ob2, now.strftime("%Y-%m-%d  %H:%M:%S"))
     return json.dumps(save_this)
 
@@ -240,8 +247,8 @@ def update_tables(order_books, base, ins1, ex1, ins2, ex2, cutoff, step, ob1_las
     ob1 = {key:order_books[0][key] for key in order_books[0] if key in ex1}
     ob2 = {key:order_books[1][key] for key in order_books[1] if key in ex2}
     
-    nob1 = fob.build_book(ob1,ins1,[ex1],cutoff,step)
-    nob2 = fob.build_book(ob2,ins2,[ex2],cutoff,step)
+    nob1 = fob.build_book(ob1,[ex1],cutoff,step,inversed[ins1])
+    nob2 = fob.build_book(ob2,[ex2],cutoff,step,inversed[ins2])
     # Orderbooks Formatting
     data1, columns1 = fob.process_ob_for_dashtable(base, ins1, nob1, step)
     ob1_new_time = dt.datetime.now().strftime('%X')

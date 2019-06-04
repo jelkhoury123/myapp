@@ -14,17 +14,20 @@ import dash_table.FormatTemplate as FormatTemplate
 sys.path.append('..') # add parent directory 
 import deribit_api3 as my_deribit
 from requests.auth import HTTPBasicAuth
-
+import asyncio
 ENABLE_WEBSOCKET_SUPPORT = False
 if ENABLE_WEBSOCKET_SUPPORT:
     import diginex.ccxt.websocket_support as ccxt
 else:
     import ccxt
+#print(ccxt.__version__)
     
 # Define my world
 deriv_exchanges =['deribit','bitmex']
+spot_exchanges = ['coinbasepro','kraken','liquid','binance',
+                    'bitbank','bittrex','kucoin2','poloniex','bitfinex']
 
-exchanges =  deriv_exchanges 
+exchanges =  deriv_exchanges + spot_exchanges
 
 api_keys = json.loads(os.environ.get('api_keys'))
 api_secrets = json.loads(os.environ.get('api_secrets'))
@@ -33,10 +36,15 @@ auth = HTTPBasicAuth(api_keys['deribit'], api_secrets['deribit'])
 
 exch_dict={}
 for x in exchanges:
-    exec('exch_dict[x]=ccxt.{}({{"apiKey": "{}", "secret": "{}"}})'.format(x, api_keys[x], api_secrets[x]))
-    #exec('exch_dict[x]=ccxt.{}()'.format(x))
+    if x in api_keys:
+        exec('exch_dict[x]=ccxt.{}({{"apiKey": "{}", "secret": "{}"}})'.format(x, api_keys[x], api_secrets[x]))
+    else:
+        exec('exch_dict[x]=ccxt.{}()'.format(x))
+
 for xccxt in exch_dict.values():
     xccxt.load_markets()
+
+deriv_exch_dict ={key:value for key,value in exch_dict.items() if key in deriv_exchanges}
 
 deribit = exch_dict['deribit']
 bitmex = exch_dict['bitmex']
@@ -66,7 +74,7 @@ def get_d1_instruments():
     3. a dictionary {ins:tick size}
     '''
     all_ins,inversed,tick_sizes={},{},{}
-    for exc,exc_obj in exch_dict.items():
+    for exc,exc_obj in deriv_exch_dict.items():
         all_ins[exc]={}
         for base in Xpto_main + Xpto_alt:
             base_list=[]
@@ -97,6 +105,7 @@ def get_d1_instruments():
                 all_ins[exc].update({'ALT':base_list})
     return all_ins, inversed, tick_sizes
 
+#print(get_d1_instruments())
 
 instruments,inversed, ticks = get_d1_instruments()
 deribit_d1_ins , bitmex_d1_ins = instruments['deribit'], instruments['bitmex']
@@ -116,7 +125,7 @@ def get_ins_for_exchange(ex):
     d[ex].load_markets()
     return d[ex].symbols
 
-def get_order_books(ins,ex,size=100):
+def get_order_books(ins,exc,size=1000,cutoff=.1):
     '''ins is the instrument string example 'BTC-PERPETUAL',
         ex is a dictionary of ccxt objects where ins is traded
         returns a dictionary of order books for the instrument
@@ -125,18 +134,53 @@ def get_order_books(ins,ex,size=100):
         {'bids': [[price,quantity]],'asks':[[price,quantity]]}
         Deribit needs a 10 multiplier 
     '''
+    now = dt.datetime.now()
     order_books={}
-    standard_call= {key:value for key, value in ex.items() if key not in ('binance','bitfinex','deribit')}
-    order_books.update({key: value.fetch_order_book(ins,limit=size,
-                        params={'full':1,'level':3,'limit_bids':0,'limit_asks':0,'type':'both'})
-                        for key,value in standard_call.items()})
-    if 'binance' in ex:
-        order_books.update({'binance' : ex['binance'].fetch_order_book(ins,limit=1000)})
-    if 'bitfinex' in ex:
-        order_books.update({'bitfinex': ex['bitfinex'].fetch_order_book(ins,limit=2000)})
-    if 'deribit' in ex:
-        order_books.update({'deribit': my_deribit.get_order_book(ins,size*2)})
+    payload ={ex:{'full':1,'level':3,'limit_bids':size,'limit_asks':size,
+                    'type':'both'}if ex !='binance' else{} for ex in exc}
+    for ex in exc:
+        if ex != 'deribit':
+            ob = exc[ex].fetch_order_book(ins,limit=size,params=payload[ex])
+        else:
+            ob = my_deribit.get_order_book(ins,size*2) 
+        bid_side = pd.DataFrame(ob['bids'])
+        agg_bids = (bid_side.groupby(0).sum().reset_index().sort_values(0,ascending=False))
+        agg_bids = agg_bids[agg_bids[0]>(1-cutoff)*agg_bids.iloc[0,0]]
+        ob_bids = agg_bids.values.tolist()
+        ask_side=pd.DataFrame(ob['asks'])
+        agg_asks=(ask_side.groupby(0).sum().reset_index().sort_values(0,ascending=True))
+        agg_asks=agg_asks[agg_asks[0]<(1+cutoff)*agg_asks.iloc[0,0]]
+        ob_asks = agg_asks.values.tolist()
+        ob = {'bids':ob_bids,'asks':ob_asks}
+        order_books.update({ex:ob})
+    print('get_order_book runtime',now,dt.datetime.now()-now,list(exc.keys()))
+
     return order_books
+
+def get_order_books_async(ins,exc,size=100):
+    async def get_async_order_book(ins,ex,size):
+        if ex != 'deribit':
+            exchange = getattr(accxt,ex)()
+            payload = {} if ex =='binance' else {'full':1,'level':3,
+                                                'limit_bids':size,'limit_asks':size,'type':'both'}
+            book = await exchange.fetch_order_book(ins, limit=size,params=payload)
+            #print(ex)
+        else:
+            book = my_deribit.get_order_book(ins,size*2)
+            print(ex)
+        
+        await exchange.close()
+        return {ex:book}
+    futures = []
+    for ex in (exc):
+        futures.append(get_async_order_book(ins, ex,size))
+    loop = asyncio.get_event_loop()
+    one_giant_future = asyncio.gather(*futures)
+    books=loop.run_until_complete(one_giant_future)
+    final_book = {}
+    for d in books:
+        final_book.update(d)
+    return final_book
 
 def aggregate_order_books(dict_of_order_books):
     '''dict_of_order_books is a dict of ccxt like order_books returned by get_order_books with ex name added
@@ -389,20 +433,22 @@ def get_liq_params(normalized,pair,step):
     result3[['24H % Volume','% 1h','% 24h','% 7d']] = result3[['24H % Volume','% 1h','% 24h','% 7d']].div(100, axis = 0)
     return [result1,result2,result3]
 
-def get_open_orders():
-    deribit_open_orders = []
-    for coin in deribit_d1_ins:
-        for symbol in deribit_d1_ins[coin]:
-            orders = deribit.fetch_open_orders(symbol)
-            deribit_open_orders+= orders
-    for order in deribit_open_orders:
-        order['ex']='deribit'   
+def get_open_orders(exc_list):
+    open_orders = []
+    if 'deribit' in exc_list:
+        for coin in deribit_d1_ins:
+            for symbol in deribit_d1_ins[coin]:
+                orders = deribit.fetch_open_orders(symbol)
+                open_orders+= orders
+        for order in open_orders:
+            order['ex']='deribit'
 
-    bitmex_open_orders=bitmex.fetch_open_orders()
-    for order in bitmex_open_orders:
-        order['ex']='bitmex' 
-
-    open_orders = deribit_open_orders + bitmex_open_orders
+    for ex in exc_list:
+        if ex != 'deribit' and ex in api_keys:
+            ex_open_orders=exch_dict[ex].fetch_open_orders()
+            for order in ex_open_orders:
+                order['ex']=ex 
+            open_orders+=ex_open_orders
 
     for order in open_orders:
         order.pop('info')
@@ -415,22 +461,25 @@ def get_open_orders():
         oo= pd.DataFrame(columns=columns)
     return oo
 
-def get_closed_orders(start):
-       
-    d_eth_closed = pd.DataFrame(my_deribit.get_order_history_by_currency(auth,'ETH',include_old='true').json()['result'])
-    d_btc_closed = pd.DataFrame(my_deribit.get_order_history_by_currency(auth,'BTC',include_old='true').json()['result'])
-    d_closed = pd.concat([d_btc_closed,d_eth_closed],sort=True)
-    dcolumns = {'id':'order_id','type':'order_type','symbol':'instrument_name','side':'direction',
-          'amount':'amount','price':'price','average':'average_price','filled':'filled_amount','timestamp':'creation_timestamp'}
-    d_closed=d_closed[dcolumns.values()]
-    d_closed.columns=dcolumns.keys()
-    d_closed['ex']='deribit'
+def get_closed_orders(start,exc_list):
+    closed_orders =[]
+    if 'deribit' in exc_list:
+        d_eth_closed = pd.DataFrame(my_deribit.get_order_history_by_currency(auth,'ETH',include_old='true').json()['result'])
+        d_btc_closed = pd.DataFrame(my_deribit.get_order_history_by_currency(auth,'BTC',include_old='true').json()['result'])
+        d_closed = pd.concat([d_btc_closed,d_eth_closed],sort=True)
+        dcolumns = {'id':'order_id','type':'order_type','symbol':'instrument_name','side':'direction',
+            'amount':'amount','price':'price','average':'average_price','filled':'filled_amount','timestamp':'creation_timestamp'}
+        d_closed=d_closed[dcolumns.values()]
+        d_closed.columns=dcolumns.keys()
+        d_closed['ex']='deribit'
 
-    bitmex_closed_orders=bitmex.fetch_closed_orders()
-    for order in bitmex_closed_orders:
-        order['ex']='bitmex'
+    for ex in exc_list:
+        if ex != 'deribit' and ex in api_keys:
+            ex_closed_orders=exch_dict[ex].fetch_closed_orders()
+            for order in ex_closed_orders:
+                order['ex']=ex
 
-    closed_orders =  bitmex_closed_orders
+            closed_orders += ex_closed_orders
 
     for order in closed_orders:
         order.pop('info')
@@ -438,29 +487,42 @@ def get_closed_orders(start):
     if len(closed_orders) > 0:
         closed_orders = pd.DataFrame(closed_orders).sort_values(by=['timestamp'],ascending=False)
         closed_orders = closed_orders[closed_orders['timestamp']>start]
+        if 'average' not in closed_orders.columns:
+            closed_orders['average']=closed_orders['cost']/closed_orders['amount']
         columns = ['id','type','symbol','side','amount','price','average','filled','timestamp','ex']
         co=closed_orders[columns].copy()
     else: 
         columns = ['id','type','symbol','side','amount','price','average','filled','timestamp','ex']
         co= pd.DataFrame(columns=columns)
+    if 'deribit' in exc_list:
+        co = pd.concat([co,d_closed],sort = False )
+    co = co.sort_values(by='timestamp',ascending = False)
+    return co[co['timestamp']>start]
 
-    closed_df = pd.concat([co,d_closed],sort = False )
-    closed_df = closed_df.sort_values(by='timestamp',ascending = False)
-    return closed_df[closed_df['timestamp']>start]
-
-def get_balances():
-    deribit_balance=deribit.fetch_balance()
-    deribit_balance['total']['ETH'] = my_deribit.get_account_summary(auth,'ETH','true').json()['result']['equity']
-    deribit_balance['free']['ETH'] = my_deribit.get_account_summary(auth,'ETH','true').json()['result']['available_funds']
-    deribit_balance['used']['ETH'] = round(deribit_balance['total']['ETH'] - deribit_balance['free']['ETH'],4)
-    d_balance={key:deribit_balance[key] for key in ['free','used','total']}
-    d_balance['exc']='deribit'
-    bitmex_balance=bitmex.fetch_balance()
-    b_balance={key:bitmex_balance[key] for key in ['free','used','total']}
-    b_balance['exc']='bitmex'
-    b=pd.concat([pd.DataFrame(b_balance),pd.DataFrame(d_balance)])
-    b = b[['exc','used','free','total']]
-    return b
+def get_balances(exc_list):
+    
+    exc_balances=[]
+    for ex in exc_list:
+        if ex != 'deribit' and ex in api_keys:
+            ex_balance=exch_dict[ex].fetch_balance()
+            ex_balance={key:ex_balance[key] for key in ['free','used','total']}
+            ex_balance['exc']=ex
+            exc_balances.append(pd.DataFrame(ex_balance))
+    
+    if 'deribit' in exc_list:
+        deribit_balance=deribit.fetch_balance()
+        deribit_balance['total']['ETH'] = my_deribit.get_account_summary(auth,'ETH','true').json()['result']['equity']
+        deribit_balance['free']['ETH'] = my_deribit.get_account_summary(auth,'ETH','true').json()['result']['available_funds']
+        deribit_balance['used']['ETH'] = round(deribit_balance['total']['ETH'] - deribit_balance['free']['ETH'],4)
+        d_balance={key:deribit_balance[key] for key in ['free','used','total']}
+        d_balance['exc']='deribit'
+        exc_balances.append(pd.DataFrame(d_balance))
+    if len(exc_balances)>0:
+        balances=pd.concat(exc_balances)
+        balances = balances[['exc','used','free','total']]
+    else:
+        balances = None
+    return balances
 
 def build_spread_book(nob1,nob2):
     bid_columns = [col for col in nob1.columns if 'bid' in col]
