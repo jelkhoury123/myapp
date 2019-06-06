@@ -82,15 +82,15 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
                     html.H6( style = { 'font-weight': 'bold', 'font-size': '1.2rem' }, children = [ i ], ),
                     dash_table.DataTable(
                         id = 'd1-'+i+'_table',
-                        columns = [ { 'name': 'Instr.', 'id': 'Instr.', },
-                                    { 'name': 'Last', 'id': 'Last', 'type': 'numeric', 'format': Format( precision = section_precision[i], scheme=Scheme.fixed ) },
-                                    { 'name': 'Prem.', 'id': 'Prem.', 'type': 'numeric', 'format': Format( precision = section_precision[i], scheme=Scheme.fixed, sign=Sign.positive ) },
-                                    { 'name': '% Prem.', 'id': '% Prem.', 'type': 'numeric', 'format': FormatTemplate.percentage(2).sign(Sign.positive) },
-                                    { 'name': 'An. Prem.', 'id': 'An. Prem.', 'type': 'numeric', 'format': FormatTemplate.percentage(2).sign(Sign.positive) },
-                                    { 'name': 'F. Cycles', 'id': 'F. Cycles', 'type': 'numeric', 'format': Format( precision = 2, scheme=Scheme.fixed ) }, 
-                                    { 'name': 'Exchange', 'id': 'Exchange', 'hidden': 'True' }, ],
+                        columns = [ { 'name': 'Instr.', 'id': 'instr', },
+                                    { 'name': 'Mid', 'id': 'mid', 'type': 'numeric', 'format': Format( precision = section_precision[i], scheme=Scheme.fixed ) },
+                                    { 'name': 'Prem.', 'id': 'prem', 'type': 'numeric', 'format': Format( precision = section_precision[i], scheme=Scheme.fixed, sign=Sign.positive ) },
+                                    { 'name': '% Prem.', 'id': 'pprem', 'type': 'numeric', 'format': FormatTemplate.percentage(2).sign(Sign.positive) },
+                                    { 'name': 'An. Prem.', 'id': 'anprem', 'type': 'numeric', 'format': FormatTemplate.percentage(2).sign(Sign.positive) },
+                                    { 'name': 'F. Cycles', 'id': 'fycles', 'type': 'numeric', 'format': Format( precision = 2, scheme=Scheme.fixed ) }, 
+                                    { 'name': 'exchange', 'id': 'exchange', 'hidden': 'True' }, ],
                         style_cell = { 'padding-left': '10px', 'padding-right': '10px', },
-                        style_data_conditional = [ { 'if': { 'filter': '"% Prem." > num(0)' }, "color": "#008000", "fontWeight": "bold" }, { 'if': { 'filter': '"% Prem." < num(0)' }, "color": "#B22222", "fontWeight": "bold" }, ], ),
+                        style_data_conditional = [ { 'if': { 'filter': '{pprem} > 0' }, "color": "#008000", "fontWeight": "bold" }, { 'if': { 'filter': '{pprem} < 0' }, "color": "#B22222", "fontWeight": "bold" }, ], ),
                     html.P(id = 'd1-'+i+'-last-timestamp', style = {'display':'inline-block','font-size':'1.2rem'}),
                     html.P(children=' / ', style = {'display':'inline-block', 'margin':'0px 5px','font-size':'1.2rem'}),
                     html.P(id = 'd1-'+i+'-new-timestamp', style = {'display':'inline-block','font-size':'1.2rem'}, children = dt.now().strftime('%X')),
@@ -175,14 +175,14 @@ def show_table(n_intervals, history, BTCUSD_last_timestamp, ETHUSD_last_timestam
         table = table.iloc[:,2:]
         if pair in ['BTCUSD', 'ETHUSD', 'ETHBTC']:
             table = table.reset_index()
-            table.columns = ['Instr.', 'Last', 'Prem.', '% Prem.', 'An. Prem.', 'F. Cycles', 'Exchange']
+            table.columns = ['instr', 'mid', 'prem', 'pprem', 'anprem', 'fcycles', 'exchange']
             data.append(table.to_dict('rows'))
             new_timestamps.append(dt.now().strftime('%X'))
         else:
             table = pd.DataFrame(table)
             alt_data = pd.concat([alt_data, table])
     alt_data = alt_data.reset_index()
-    alt_data.columns = ['Instr.', 'Last', 'Prem.', '% Prem.', 'An. Prem.', 'F. Cycles', 'Exchange']
+    alt_data.columns = ['instr', 'mid', 'prem', 'pprem', 'anprem', 'fcycles', 'exchange']
     data.append(alt_data.to_dict('rows'))
     new_timestamps.append(dt.now().strftime('%X'))
 
@@ -236,7 +236,7 @@ def get_ethxbt(cell, tab_data, n_intervals, history):
 )
 def get_altxxx(cell, tab_data, n_intervals, history):
     history = pd.read_json(history, orient = 'split')
-    cell_row = 0 if cell==None else cell[0]
+    cell_row = 0 if cell==None else cell['row']
     pairs = ['BCHBTC', 'BCHBTC', 'LTCBTC', 'LTCBTC', 'XRPBTC', 'XRPBTC', 'TRXBTC', 'TRXBTC', 'EOSBTC', 'EOSBTC', 'ADABTC', 'ADABTC']
     data = history[history['pair']==pairs[cell_row]]
     chart = get_charts(data, cell, pairs[cell_row], tab_data)
@@ -244,10 +244,10 @@ def get_altxxx(cell, tab_data, n_intervals, history):
 
 
 def get_charts(data, cell, pair, tab_data = None):
-    cell_col = 0 if cell==None else cell[1]
-    cell_row = None if cell==None else cell[0]
+    cell_col = 0 if cell==None else cell['column']
+    cell_row = None if cell==None else cell['row']
     tab_data = pd.DataFrame(tab_data) if tab_data != None else tab_data
-    row_data = ['bitmex', 'deribit'] if cell_row == None else [tab_data['Exchange'][cell_row]]
+    row_data = ['bitmex', 'deribit'] if cell_row == None else [tab_data['exchange'][cell_row]]
     row_data = ['bitmex', 'deribit'] if cell_row == 0 else row_data
     title = ('Bitmex - '+pair+' - Premium' if row_data==['bitmex'] else ( 'Deribit - '+pair+' - Premium' if row_data==['deribit'] else 'Bitmex, Deribit - '+pair+' - Premium')) if pair == 'BTCUSD' or pair == 'ETHUSD' else pair+' - Premium'
     prem_traces = []

@@ -21,14 +21,14 @@ import deribit_api3 as my_deribit
 import fob
 from app import app # app is the main app which will be run on the server in index.py
 
-ENABLE_WEBSOCKET_SUPPORT = False
-refresh_rate_ob = 2 #if ENABLE_WEBSOCKET_SUPPORT else 3
-refresh_rate = 8
+ENABLE_WEBSOCKET_SUPPORT = True
+refresh_rate_ob = .5 if ENABLE_WEBSOCKET_SUPPORT else 2
+refresh_rate = 4
 if ENABLE_WEBSOCKET_SUPPORT:
     import diginex.ccxt.websocket_support as ccxt
 else:
     import ccxt
-    
+print('=====================================================================================',refresh_rate_ob,refresh_rate)   
 # Define my world
 spot_exchanges = ['coinbasepro','kraken','liquid','binance',
                     'bitbank','bittrex','kucoin2','poloniex','bitfinex']
@@ -141,8 +141,8 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
                                             html.Div(children=[dash_table.DataTable(id='spot-order-table',
                                                     style_table={'border': '1px solid lightgrey','border-collapse':'collapse'},
                                                     style_cell={'textAlign':'center','width':'12%'},
-                                                    style_data_conditional= [{'if': {'filter':  'side eq "bid"' }, 'color':'blue' } ] +
-                                                                            [{'if': {'filter': 'side eq "ask"' }, 'color':'rgb(203,24,40)' }] +
+                                                    style_data_conditional= [{'if': {'filter':  '{side} eq "bid"' }, 'color':'blue' } ] +
+                                                                            [{'if': {'filter': '{side} eq "ask"' }, 'color':'rgb(203,24,40)' }] +
                                                                             [{'if': {'row_index':'odd'}, 'backgroundColor':'rgb(242,242,242)'} ] +
                                                                             [{'if': {'column_id':'price'}, 'fontWeight':'bold', 'border': 'thin lightgrey solid'}] +
                                                                             [{'if': {'column_id':'from_mid'}, 'fontWeight':'bold'} ] +
@@ -401,10 +401,10 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step,last_upda
             [State('spot-order-table','data')])
 def update_order(active_cell,pair,step,data):
     data_df=pd.DataFrame(data)
-    row = data_df.iloc[active_cell[0]]
+    row = data_df.iloc[active_cell['row']]
     columns = ['B/S','Ins','Qty','Limit price','exc']
     order_df=pd.DataFrame(columns=columns)
-    size = round(row['cum_size'], 2) if active_cell[1] == 3 else round(row['size'], 2)
+    size = round(row['cum_size'], 2) if active_cell['column'] == 3 else round(row['size'], 2)
     order_df.loc[0]=['B' if row['side']=='bid' else 'S',pair,size,row['price'],row['exc']]
     step = 10**(step-3)/10000
     r = min(int(np.ceil(-np.log(step)/np.log(10)))-2, ticks[row['exc']][pair][1])
@@ -443,6 +443,8 @@ def update_output(submit_n_clicks,order):
 @app.callback([Output('spot-open-orders','data'),Output('spot-open-orders','columns')],
             [Input('spot-interval2-component','n_intervals'),Input('spot-exchanges','value')])
 def update_open(interval,exc_list):
+    print (interval)
+    print('----> calling open orders on :', exc_list, dt.datetime.now())
     oo = fob.get_open_orders(exc_list)
     oo['Cancel']='X'
     data = oo.to_dict('rows')
@@ -456,9 +458,9 @@ def update_open(interval,exc_list):
             [State ('spot-open-orders','data')])
 def cancel_order(active_cell,open_orders):
     oo=pd.DataFrame(open_orders)
-    if active_cell[1] == 8:
-        exc = oo.iloc[active_cell[0]]['ex']
-        order_id = oo.iloc[active_cell[0]]['id']
+    if active_cell['column'] == 8:
+        exc = oo.iloc[active_cell['row']]['ex']
+        order_id = oo.iloc[active_cell['row']]['id']
         spot_exch_dict[exc].cancel_order(order_id)
         return 'Canceled {}  {}'.format(order_id ,exc)
     else:
@@ -474,6 +476,8 @@ def update_closed(interval,go_back_date,exc_list):
     #midnight = pd.to_datetime(str(year)+'-'+str(month)+'-'+str(day)).timestamp()*10**3
     go_back_date = go_back_date.split(' ')[0]
     from_this_date = dt.datetime.strptime(go_back_date, '%Y-%m-%d').timestamp()*10**3
+    print (interval)
+    print('----> calling closed orders on :', exc_list, dt.datetime.now())
     co = fob.get_closed_orders(from_this_date,exc_list)
     #co['timestamp']=pd.to_datetime((co['timestamp']/10**3).round(0), unit='s')
     co['timestamp']=pd.to_datetime(co['timestamp']/1000, unit='s')
@@ -488,6 +492,7 @@ def update_closed(interval,go_back_date,exc_list):
             [Input('spot-interval2-component','n_intervals'),
             Input('spot-exchanges','value')])
 def update_balance(interval,exc_list):
+    print('----> calling balances on :', exc_list, dt.datetime.now())
     b = fob.get_balances(exc_list)
     if b is not None:
         b.reset_index(inplace = True)

@@ -21,7 +21,7 @@ from app import app
 # If websocket use diginex.ccxt library and reduce update interval from 10 to 5 secs
 
 ENABLE_WEBSOCKET_SUPPORT = False
-refresh_rate = 5 if ENABLE_WEBSOCKET_SUPPORT else 2
+refresh_rate = 5 if ENABLE_WEBSOCKET_SUPPORT else 5
 if ENABLE_WEBSOCKET_SUPPORT:
     import diginex.ccxt.websocket_support as ccxt
 else:
@@ -109,8 +109,8 @@ layout =  html.Div( className = 'row', style = {'marginLeft':35,'marginRight':35
                                         style_table = {'border': '1px solid lightgrey','border-collapse':'collapse'},
                                         style_cell = {'textAlign':'center','width':'12%'},
                                         style_header={'textAlign':'center','backgroundColor':'#DCDCDC','fontWeight':'bold'},
-                                        style_data_conditional =    [{'if' : {'filter':  'side eq "bid"' }, 'color':'blue' }] +
-                                                                    [{'if' : {'filter': 'side eq "ask"' }, 'color':'rgb(203,24,40)' }] +
+                                        style_data_conditional =    [{'if' : {'filter':  '{side} eq "bid"' }, 'color':'blue' }] +
+                                                                    [{'if' : {'filter': '{side} eq "ask"' }, 'color':'rgb(203,24,40)' }] +
                                                                     [{'if': {'row_index':'odd'}, 'backgroundColor':'rgb(242,242,242)'}] +
                                                                     [{'if':{'column_id':'price'}, 'fontWeight':'bold','border': 'thin lightgrey solid'}] +
                                                                     [{'if':{'column_id':'from_mid'}, 'fontWeight':'bold'}] +
@@ -138,8 +138,8 @@ layout =  html.Div( className = 'row', style = {'marginLeft':35,'marginRight':35
                                         style_table = {'border': '1px solid lightgrey','border-collapse':'collapse'},
                                         style_cell = {'textAlign':'center','width':'12%'},
                                         style_header={'textAlign':'center','backgroundColor':'#DCDCDC','fontWeight':'bold'},
-                                        style_data_conditional =    [{'if' : {'filter':  'side eq "bid"' }, 'color':'blue' }] +
-                                                                    [{'if' : {'filter': 'side eq "ask"' }, 'color':'rgb(203,24,40)' }] +
+                                        style_data_conditional =    [{'if' : {'filter':  '{side} eq "bid"' }, 'color':'blue' }] +
+                                                                    [{'if' : {'filter': '{side} eq "ask"' }, 'color':'rgb(203,24,40)' }] +
                                                                     [{'if': {'row_index':'odd'}, 'backgroundColor':'rgb(242,242,242)'}] +
                                                                     [{'if':{'column_id':'price'}, 'fontWeight':'bold','border': 'thin lightgrey solid'}] +
                                                                     [{'if':{'column_id':'from_mid'}, 'fontWeight':'bold'}] +
@@ -158,8 +158,8 @@ layout =  html.Div( className = 'row', style = {'marginLeft':35,'marginRight':35
                                         style_table = {'border': '1px solid lightgrey','border-collapse':'collapse'},
                                         style_cell = {'textAlign':'center','width':'12%'},
                                         style_header={'textAlign':'center','backgroundColor':'#DCDCDC','fontWeight':'bold'},
-                                        style_data_conditional =    [{'if' : {'filter':  'side eq "bid"' }, 'color':'blue' }] +
-                                                                    [{'if' : {'filter': 'side eq "ask"' }, 'color':'rgb(203,24,40)' }] +
+                                        style_data_conditional =    [{'if' : {'filter':  '{side} eq "bid"' }, 'color':'blue' }] +
+                                                                    [{'if' : {'filter': '{side} eq "ask"' }, 'color':'rgb(203,24,40)' }] +
                                                                     [{'if': {'row_index':'odd'}, 'backgroundColor':'rgb(242,242,242)'}] +
                                                                     [{'if':{'column_id':'price'}, 'fontWeight':'bold','border': 'thin lightgrey solid'}] +
                                                                     [{'if':{'column_id':'from_mid'}, 'fontWeight':'bold'}] +

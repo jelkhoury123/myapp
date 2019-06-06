@@ -19,8 +19,8 @@ from app import app  # app is the main app which will be run on the server in in
 # If websocket use diginex.ccxt library and reduce update interval from 7 to 5 secs
 
 ENABLE_WEBSOCKET_SUPPORT = True
-refresh_rate_ob = .5 #if ENABLE_WEBSOCKET_SUPPORT else 4
-refresh_rate = 3
+refresh_rate_ob = 1.5 #if ENABLE_WEBSOCKET_SUPPORT else 4
+refresh_rate = 6
 if ENABLE_WEBSOCKET_SUPPORT:
     import diginex.ccxt.websocket_support as ccxt
 else:
@@ -135,12 +135,12 @@ layout =  html.Div(style={'marginLeft':35,'marginRight':35},
                                                     style_table={'border': '1px solid lightgrey','border-collapse':'collapse'},
                                                     style_cell={'textAlign':'center','width':'12%'},
                                                     style_data_conditional=[{
-                                                        'if' : {'filter':  'side eq "bid"' },
+                                                        'if' : {'filter':  '{side} eq "bid"' },
                                                         'color':'blue'
                                                                 }
                                                         ]+[
                                                         {
-                                                        'if' : {'filter': 'side eq "ask"' },
+                                                        'if' : {'filter': '{side} eq "ask"' },
                                                         'color':'rgb(203,24,40)'
                                                     }]+[
                                                         { 'if': {'row_index':'odd'},
@@ -419,10 +419,10 @@ def display_tick(ins):
 def update_order(active_cell,ins,step,data):
     step = 10**(step-2)/10000 if step !=0 else step
     data_df=pd.DataFrame(data)
-    row = data_df.iloc[active_cell[0]]
+    row = data_df.iloc[active_cell['row']]
     columns = ['B/S','Ins','Qty','Limit price','exc']
     order_df=pd.DataFrame(columns=columns)
-    size = (row['cum_size_$'] if active_cell[1] == 5 else row['size_$']) if inversed[ins] else (row['cum_size'] if active_cell[1] == 3 else row['size'])
+    size = (row['cum_size_$'] if active_cell['column'] == 5 else row['size_$']) if inversed[ins] else (row['cum_size'] if active_cell['column'] == 3 else row['size'])
     order_df.loc[0]=['B' if row['side']=='bid' else 'S',ins,size,row['price'],row['exc']]
     precision = len(str(ticks[ins]).split('.')[1]) if '.' in str(ticks[ins]) else int(str(ticks[ins]).split('e-')[1])
     rounding = max(min(int(np.ceil(-np.log(row['price']*step)/np.log(10))), precision),0) if step !=0 else precision
@@ -460,7 +460,7 @@ def update_output(submit_n_clicks,order):
         return 'Order sent'
 
 @app.callback([Output('open-orders','data'),Output('open-orders','columns')],
-            [Input('fut-interval2-component','n_intervals'),Input('fut-exchanges','children')])
+            [Input('fut-interval2-component','n_intervals'),Input('fut-sup-exchanges','value')])
 def update_open(interval,exc_list):
     oo = fob.get_open_orders(exc_list)
     oo['Cancel']='X'
@@ -475,9 +475,9 @@ def update_open(interval,exc_list):
             [State ('open-orders','data')])
 def cancel_order(active_cell,open_orders):
     oo=pd.DataFrame(open_orders)
-    if active_cell[1] == 8:
-        exc = oo.iloc[active_cell[0]]['ex']
-        order_id = oo.iloc[active_cell[0]]['id']
+    if active_cell['column'] == 8:
+        exc = oo.iloc[active_cell['row']]['ex']
+        order_id = oo.iloc[active_cell['row']]['id']
         deriv_exch_dict[exc].cancel_order(order_id)
         return 'Canceled {}  {}'.format(order_id ,exc)
     else:
@@ -485,7 +485,7 @@ def cancel_order(active_cell,open_orders):
 
 @app.callback([Output('closed-orders','data'),Output('closed-orders','columns')],
             [Input('fut-interval2-component','n_intervals'),Input('fut-go-back-date','date'),
-            Input('fut-exchanges','children')])
+            Input('fut-sup-exchanges','value')])
 def update_closed(interval,go_back_date,exc_list):
     #year = pd.to_datetime('today').year
     #month = pd.to_datetime('today').month

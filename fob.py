@@ -136,7 +136,7 @@ def get_order_books(ins,exc,size=1000,cutoff=.1):
     '''
     now = dt.datetime.now()
     order_books={}
-    payload ={ex:{'full':1,'level':3,'limit_bids':size,'limit_asks':size,
+    payload ={ex:{'full':0,'level':3,'limit_bids':size,'limit_asks':size,
                     'type':'both'}if ex !='binance' else{} for ex in exc}
     for ex in exc:
         if ex != 'deribit':
@@ -475,7 +475,10 @@ def get_closed_orders(start,exc_list):
 
     for ex in exc_list:
         if ex != 'deribit' and ex in api_keys:
-            ex_closed_orders=exch_dict[ex].fetch_closed_orders()
+            if ex == 'liquid':
+                ex_closed_orders=exch_dict[ex].fetch_orders(since=start)
+            else :
+                ex_closed_orders=exch_dict[ex].fetch_orders()
             for order in ex_closed_orders:
                 order['ex']=ex
 
@@ -488,7 +491,7 @@ def get_closed_orders(start,exc_list):
         closed_orders = pd.DataFrame(closed_orders).sort_values(by=['timestamp'],ascending=False)
         closed_orders = closed_orders[closed_orders['timestamp']>start]
         if 'average' not in closed_orders.columns:
-            closed_orders['average']=closed_orders['cost']/closed_orders['amount']
+            closed_orders['average']=(closed_orders['cost']/closed_orders['filled']).round(4)
         columns = ['id','type','symbol','side','amount','price','average','filled','timestamp','ex']
         co=closed_orders[columns].copy()
     else: 
@@ -497,6 +500,7 @@ def get_closed_orders(start,exc_list):
     if 'deribit' in exc_list:
         co = pd.concat([co,d_closed],sort = False )
     co = co.sort_values(by='timestamp',ascending = False)
+    co = co[co['filled']>0]
     return co[co['timestamp']>start]
 
 def get_balances(exc_list):
