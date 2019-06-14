@@ -153,6 +153,7 @@ def get_order_books(ins,exc,size=1000,cutoff=.1):
         ob_asks = agg_asks.values.tolist()
         ob = {'bids':ob_bids,'asks':ob_asks}
         order_books.update({ex:ob})
+        print([(ex,len(order_books[ex]['bids'])) for ex in order_books])
     print('get_order_book runtime',now,dt.datetime.now()-now,list(exc.keys()))
 
     return order_books
@@ -471,7 +472,7 @@ def get_closed_orders(start,exc_list):
             'amount':'amount','price':'price','average':'average_price','filled':'filled_amount','timestamp':'creation_timestamp'}
         d_closed=d_closed[dcolumns.values()]
         d_closed.columns=dcolumns.keys()
-        d_closed['ex']='deribit'
+        d_closed['ex']='der'
 
     for ex in exc_list:
         if ex != 'deribit' and ex in api_keys:
@@ -480,7 +481,7 @@ def get_closed_orders(start,exc_list):
             else :
                 ex_closed_orders=exch_dict[ex].fetch_orders()
             for order in ex_closed_orders:
-                order['ex']=ex
+                order['ex']=ex[:3]
 
             closed_orders += ex_closed_orders
 

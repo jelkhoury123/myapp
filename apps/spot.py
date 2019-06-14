@@ -1,25 +1,27 @@
-import dash
-import dash_core_components as dcc 
-import dash_html_components as html 
-import dash_table 
-from dash_table.Format import Format, Scheme, Sign, Symbol
-import dash_table.FormatTemplate as FormatTemplate
-from dash.dependencies import Input, Output, State
-import plotly.graph_objs as go 
-import plotly.figure_factory as ff
-import pandas as pd
-import plotly.graph_objs as go
-import numpy as np
+import datetime as dt
 import itertools
 import json
-import datetime as dt 
 import os
-
 import sys
-sys.path.append('..')
+
+import dash
+import dash_core_components as dcc
+import dash_html_components as html
+import dash_table
+import dash_table.FormatTemplate as FormatTemplate
+import numpy as np
+import pandas as pd
+import plotly.figure_factory as ff
+import plotly.graph_objs as go
+from dash.dependencies import Input, Output, State
+from dash_table.Format import Format, Scheme, Sign, Symbol
+
 import deribit_api3 as my_deribit
 import fob
-from app import app # app is the main app which will be run on the server in index.py
+# app is the main app which will be run on the server in index.py
+from app import app
+
+sys.path.append('..')
 
 ENABLE_WEBSOCKET_SUPPORT = True
 refresh_rate_ob = .5 if ENABLE_WEBSOCKET_SUPPORT else 2
@@ -330,11 +332,14 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step,last_upda
     currency = y_scale == 'Ccy'
     order_books = json.loads(order_books)[0]
     order_books = {key:order_books[key] for key in order_books if key in exchanges}
+    now = dt.datetime.now()
     order_book = fob.build_book(order_books, exchanges, cutoff, step)
+    print('====BUILD OB==============',dt.datetime.now()-now,'======================')
+    now = dt.datetime.now()
     # 1. Plot Book and Depth
     book_plot = fob.plot_book(order_book, pair,exchanges, relative, currency, cutoff)
     depth_plot = fob.plot_depth(order_book, pair,exchanges, relative, currency, cutoff)
-
+    print('====PLOTS=============',dt.datetime.now()-now,'======================')
     # 2. Order Table
     df =  order_book
 
@@ -370,6 +375,8 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step,last_upda
             {'id':'average_fill','name':'Averge Fill','type':'numeric','format':Format(precision=rounding,scheme=Scheme.fixed)},
             {'id':'exc','name':'Exchange'},
             {'id':'side','name':'side','hidden':True}]
+    print('====TABLES ==============',dt.datetime.now()-now,'======================')
+    now = dt.datetime.now()
     try:
         liq_dfs = [df for df in fob.get_liq_params(df,pair,step)]
         col_format = {'bid':Format(precision=rounding,scheme=Scheme.fixed),
@@ -393,7 +400,9 @@ def update_page(order_books,pair,exchanges,x_scale,y_scale,cutoff,step,last_upda
                 ) for liq_df in liq_dfs]
     except:
         liq_tables=[0]*3
-    #print('update page run time',dt.datetime.now(),dt.datetime.now()-now0)
+    print('====LIQ TABLE==============',dt.datetime.now()-now,'======================')
+    now = dt.datetime.now()
+    print('update page run time----------------------->',dt.datetime.now(),dt.datetime.now()-now0)
     return (book_plot,depth_plot,data_ob,columns_ob) + tuple(liq_tables) + (last_update, ob_new_time, tickers_data, tickers_data_columns)
 
 @app.callback(Output('spot-order-to-send','data'),

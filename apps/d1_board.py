@@ -18,62 +18,100 @@ import plotly.graph_objs as go
 import ccxt
 import time
 import pandas as pd
-from datetime import datetime as dt
+import numpy as np
+import datetime as dt
 import json
 import sys
+import pymongo
 sys.path.append('..')
-import deribit_api3 as dbapi
+import deribit_api3 as my_deribit
 from app import app  # app is the main app which will be run on the server in index.py
 
+
 #----------------------------------------------------------------------------------------------#
-# APP
+# ENVIRONMENT & FUNCTIONS
 #----------------------------------------------------------------------------------------------# 
 title = 'Delta One'
 #app = dash.Dash(__name__, external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css'])
 
-bmx = ccxt.bitmex()
+refresh_rate = 5
+
 sections = ['BTCUSD', 'ETHUSD', 'ETHBTC', 'ALTBTC']
 section_precision = {'BTCUSD':2, 'ETHUSD':2, 'ETHBTC':5, 'ALTBTC':8}
+sym_ref = { 'BTCUSD':['BTC','XBT'],
+            'ETHUSD':['ETH'],
+            'ETHBTC':['ETHXBT'],
+            'ALTBTC':['ADAXBT','BCHXBT','EOSXBT','LTCXBT','TRXXBT','XRPXBT']}
 
-def get_df():
+bmx = ccxt.bitmex()
+client = pymongo.MongoClient("mongodb+srv://noman:1234@cluster0-insmh.mongodb.net/test?retryWrites=true&w=majority")
+db = client.d1
+doc = db.d1
 
-    markets_bmx = pd.DataFrame.from_dict(bmx.load_markets(), orient = 'index')
-    ind = markets_bmx[ (markets_bmx['symbol'].str.startswith('.')) & ((markets_bmx['quoteId'] == 'USD') | (markets_bmx['quoteId'] == 'XBT')) & (markets_bmx['symbol'].str.contains('30M') == False) & (markets_bmx['symbol'] != '.XBT')]
-    ins = markets_bmx[ (markets_bmx['active'] == True) & (markets_bmx['symbol'].str.contains('_') == False) ]
-    bmx_ins = pd.concat([ind,ins], sort = True)
-    bmx_ins['exp'] = bmx_ins['info'].apply(lambda x: round(((dt.strptime(x.get('expiry'), '%Y-%m-%dT%H:%M:%S.%fZ') - dt.now()).days*24 + (dt.strptime(x.get('expiry'), '%Y-%m-%dT%H:%M:%S.%fZ') - dt.now()).seconds/3600), 0) if x.get('expiry') != None else 0)
-    bmx_ins['pair'] = bmx_ins['base'] + bmx_ins['quote']
-    bmx_ins['exchange'] = 'bitmex'
-    bmx_ins = bmx_ins[['pair','exp', 'exchange']]
+# Load database data
+def load_db():
+    t = (dt.datetime.utcnow() - dt.timedelta(hours = 6)).strftime('%Y-%m-%d %H:%M:%S')
+    doc.create_index([('timestamp',pymongo.ASCENDING)])
+    cursor = doc.find({'timestamp':{'$gte':t}})
+    data_db = pd.DataFrame(cursor)
+    data = []
+    for name,group in data_db.groupby('symbol', sort=False):
+        data.append(group[['symbol','unsym','mid','prem','pprem','anprem','timestamp']].set_index('timestamp'))
+    return json.dumps([i.to_dict() for i in data])
 
-    dbt_btc_ins = pd.DataFrame(dbapi.get_instruments('BTC', 'future')[['instrument_name', 'expiration_timestamp', 'base_currency', 'quote_currency']]).set_index('instrument_name')
-    dbt_eth_ins = pd.DataFrame(dbapi.get_instruments('ETH', 'future')[['instrument_name', 'expiration_timestamp', 'base_currency', 'quote_currency']]).set_index('instrument_name')
-    dbt_ins = pd.concat([dbt_btc_ins, dbt_eth_ins])
-    dbt_ins['pair'] = dbt_ins['base_currency'] + dbt_ins['quote_currency']
-    dbt_ins['exchange'] = 'deribit'
-    dbt_ins['exp'] = dbt_ins['expiration_timestamp'].apply(lambda x: dt.fromtimestamp(x/1000).strftime('%Y-%m-%d %H:%M:%S.%f'))
-    dbt_ins['exp'] = dbt_ins['exp'].apply(lambda x: 0 if dt.strptime(x, '%Y-%m-%d %H:%M:%S.%f').year == 3000 else round((dt.strptime(x, '%Y-%m-%d %H:%M:%S.%f')-dt.now()).days*24 + (dt.strptime(x, '%Y-%m-%d %H:%M:%S.%f')-dt.now()).seconds/3600, 0))
-    dbt_ins = dbt_ins[['pair', 'exp', 'exchange']]
-    dbt_ins.loc['.BTC',:] = ['BTCUSD', 0, 'deribit']
-    dbt_ins.loc['.ETH',:] = ['ETHUSD', 0, 'deribit']
-    dbt_ins.sort_index(inplace = True)
+# Get new data
+def get_data():
+    bmx_ticks = pd.DataFrame([ins['info'] for ins in bmx.fetch_tickers().values()])
+    bmx_ticks = pd.DataFrame(bmx_ticks[(bmx_ticks['symbol'].str.contains('30M') == False) & (bmx_ticks['symbol'].str.contains('_') == False)
+                                    & ((bmx_ticks['quoteCurrency'] == 'USD') | (bmx_ticks['quoteCurrency'] == 'XBT'))
+                                    & (bmx_ticks['symbol'] != '.XBT')])
+    bmx_ticks['mid'] = bmx_ticks['midPrice'].fillna(bmx_ticks['lastPrice'])
+    bmx_ticks['exp'] = bmx_ticks['expiry'].apply(lambda x: round(((dt.datetime.strptime(x, '%Y-%m-%dT%H:%M:%S.%fZ') - dt.datetime.now()).days*24 + (dt.datetime.strptime(x, '%Y-%m-%dT%H:%M:%S.%fZ') - dt.datetime.now()).seconds/3600), 0) if x != None else 0)
+    bmx_ticks = bmx_ticks.sort_values(['underlyingSymbol','symbol'])[['symbol','mid','underlyingSymbol','exp']]
+    bmx_ticks['unsym'] = bmx_ticks['underlyingSymbol'].str.strip('=')
+    bmx_ticks['symbol'].replace(['XBTUSD','ETHUSD'],['BTC/USD','ETH/USD'], inplace=True)
+    bmx_ticks['ex'] = 'bmx'
+    bmx_ticks['symbol'] = bmx_ticks['symbol']+'_bmx'
 
-    history = pd.concat([bmx_ins, dbt_ins]).to_json(orient = 'split', date_format='iso')
+    dbt_btc = my_deribit.get_summary_by_currency('BTC', 'future')
+    dbt_eth = my_deribit.get_summary_by_currency('ETH', 'future')
+    dbt_ticks = pd.concat([dbt_btc, dbt_eth], ignore_index=True)[['instrument_name', 'ask_price', 'bid_price', 'estimated_delivery_price', 'base_currency']]
+    dbt_ticks['mid'] = (dbt_ticks['ask_price'] + dbt_ticks['ask_price'])/2
+    dbt_ticks['exp'] = dbt_ticks['instrument_name'].apply(lambda x: x.split('-')[1]+' 08:00:00' if x.split('-')[1]!='PERPETUAL' else np.nan)
+    dbt_ticks['exp'] = dbt_ticks['exp'].apply(lambda x: round(((dt.datetime.strptime(str(x), '%d%b%y %H:%M:%S') - dt.datetime.now()).days*24 + (dt.datetime.strptime(str(x), '%d%b%y %H:%M:%S') - dt.datetime.now()).seconds/3600), 0) if x is not np.nan else 0)
+    dbt_ticks = dbt_ticks.append({'instrument_name':'.BTC', 'base_currency':'BTC','exp': 0, 'mid':dbt_ticks['estimated_delivery_price'][dbt_ticks['base_currency']=='BTC'].unique()[0]}, ignore_index=True)
+    dbt_ticks = dbt_ticks.append({'instrument_name':'.ETH', 'base_currency':'ETH','exp': 0, 'mid':dbt_ticks['estimated_delivery_price'][dbt_ticks['base_currency']=='ETH'].unique()[0]}, ignore_index=True)
+    dbt_ticks = dbt_ticks.rename(columns = {'base_currency':'unsym', 'instrument_name':'symbol'})
+    dbt_ticks = dbt_ticks[['symbol','mid','unsym','exp']].sort_values(['unsym','symbol'])
+    dbt_ticks['ex'] = 'dbt'
+    dbt_ticks['symbol'] = dbt_ticks['symbol']+'_dbt'
 
-    return history
+    ticks = pd.concat([bmx_ticks,dbt_ticks],sort=False)
+    ticks['prem'] = ticks['mid'].groupby([ticks['ex'],ticks['unsym']]).apply(lambda x: x.apply(lambda y: y-x.iloc[0]))
+    ticks['pprem'] = ticks['mid'].groupby([ticks['ex'],ticks['unsym']]).apply(lambda x: x.apply(lambda y: (y-x.iloc[0])/x.iloc[0]))
+    ticks['anprem'] = ticks['pprem'].div(ticks['exp'])*8760
+    ticks['anprem'] = ticks['anprem'].replace([np.inf, -np.inf, np.nan], 0)
+    ticks.sort_values(['ex','unsym','exp'],inplace = True)
+    ticks = ticks[['symbol', 'unsym', 'mid', 'prem', 'pprem', 'anprem']]
+
+    ticks['timestamp'] = dt.datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')
+    #ticks[['pprem','anprem']].replace(0, np.nan, inplace=True)
+    ticks.set_index('timestamp', inplace=True)
+
+    return ticks
 
 
 #----------------------------------------------------------------------------------------------#
 # Layout
 #----------------------------------------------------------------------------------------------# 
 
-layout = html.Div(style={'marginLeft':35,'marginRight':35},
-    className = 'twelve columns',
+layout = html.Div(style={'paddingLeft':35,'paddingRight':35},
+    #className = 'twelve columns',
     children = [
         # Hidden Data Storage
-        html.Div( id = 'd1-hidden_storage', style = {'display': 'none'}, children = get_df() ),
+        html.Div( id = 'd1-hidden_storage', style = {'display': 'none'}, children = load_db() ),
         # Refresh Rate
-        dcc.Interval( id = 'd1-refresh_rate', interval = 5*1000, n_intervals = 0, ),
+        dcc.Interval( id = 'd1-refresh_rate', interval = refresh_rate*1000, n_intervals = 0, ),
 
         html.Div( children = [ 
             html.Div( className = 'row', style = {'border-bottom': '1px solid #CB1828', 'margin-bottom': '20px', 'margin-top': '10px'} if i!='ALTBTC' else {'boder-bottom': 'none'}, children = [
@@ -82,18 +120,21 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
                     html.H6( style = { 'font-weight': 'bold', 'font-size': '1.2rem' }, children = [ i ], ),
                     dash_table.DataTable(
                         id = 'd1-'+i+'_table',
-                        columns = [ { 'name': 'Instr.', 'id': 'instr', },
+                        columns = [ { 'name': 'Instr', 'id': 'symbol', },
                                     { 'name': 'Mid', 'id': 'mid', 'type': 'numeric', 'format': Format( precision = section_precision[i], scheme=Scheme.fixed ) },
-                                    { 'name': 'Prem.', 'id': 'prem', 'type': 'numeric', 'format': Format( precision = section_precision[i], scheme=Scheme.fixed, sign=Sign.positive ) },
-                                    { 'name': '% Prem.', 'id': 'pprem', 'type': 'numeric', 'format': FormatTemplate.percentage(2).sign(Sign.positive) },
-                                    { 'name': 'An. Prem.', 'id': 'anprem', 'type': 'numeric', 'format': FormatTemplate.percentage(2).sign(Sign.positive) },
-                                    { 'name': 'F. Cycles', 'id': 'fycles', 'type': 'numeric', 'format': Format( precision = 2, scheme=Scheme.fixed ) }, 
-                                    { 'name': 'exchange', 'id': 'exchange', 'hidden': 'True' }, ],
-                        style_cell = { 'padding-left': '10px', 'padding-right': '10px', },
-                        style_data_conditional = [ { 'if': { 'filter': '{pprem} > 0' }, "color": "#008000", "fontWeight": "bold" }, { 'if': { 'filter': '{pprem} < 0' }, "color": "#B22222", "fontWeight": "bold" }, ], ),
+                                    { 'name': 'Prem', 'id': 'prem', 'type': 'numeric', 'format': Format( precision = section_precision[i], scheme=Scheme.fixed, sign=Sign.positive ) },
+                                    { 'name': '% Prem', 'id': 'pprem', 'type': 'numeric', 'format': FormatTemplate.percentage(2).sign(Sign.positive) },
+                                    { 'name': 'An Prem', 'id': 'anprem', 'type': 'numeric', 'format': FormatTemplate.percentage(2).sign(Sign.positive) },
+                                    { 'name': 'F Cycles', 'id': 'fcycles', 'type': 'numeric', 'format': Format( precision = 2, scheme=Scheme.fixed ) } ],
+                        #style_header={'backgroundColor':'#373737', 'font-size':'bold'}, #17191b
+                        style_header={'font-size':'bold'},
+                        #style_cell = { 'padding-left': '10px', 'padding-right': '10px', 'backgroundColor':'#2c2c2c', 'color':'white', 'border':'1px solid #565656'}, #272c30
+                        style_cell = { 'padding-left': '10px', 'padding-right': '10px'},
+                        style_data_conditional = [ { 'if': { 'filter': '{pprem} > 0' }, "color": "#008000", "fontWeight": "bold" }, { 'if': { 'filter': '{pprem} < 0' }, "color": "#B22222", "fontWeight": "bold" },]
+                        ),
                     html.P(id = 'd1-'+i+'-last-timestamp', style = {'display':'inline-block','font-size':'1.2rem'}),
                     html.P(children=' / ', style = {'display':'inline-block', 'margin':'0px 5px','font-size':'1.2rem'}),
-                    html.P(id = 'd1-'+i+'-new-timestamp', style = {'display':'inline-block','font-size':'1.2rem'}, children = dt.now().strftime('%X')),
+                    html.P(id = 'd1-'+i+'-new-timestamp', style = {'display':'inline-block','font-size':'1.2rem'}, children = dt.datetime.now().strftime('%X')),
                     ], ),
                 # Chart - Last Price
                 html.Div( className = 'one-third column', style = {'margin-top': '10px', 'margin-right': '0px', 'margin-left': '50px'}, children = [
@@ -111,39 +152,18 @@ layout = html.Div(style={'marginLeft':35,'marginRight':35},
 #----------------------------------------------------------------------------------------------#
 # Callbacks
 #----------------------------------------------------------------------------------------------#
-# Update Data
 @app.callback(
     Output('d1-hidden_storage', 'children'),
     [Input('d1-refresh_rate', 'n_intervals')],
     [State('d1-hidden_storage', 'children')],
 )
-def process_data(n_intervals, history):
-
-    history = pd.read_json(history, orient = 'split')
-
-    bmx_ins = history[history['exchange'] == 'bitmex'].index
-    bmx_futs = [ins for ins in bmx_ins if '.' not in ins]
-    bmx_idx = [ins for ins in bmx_ins if '.' in ins]
-    bmx_tickers = pd.DataFrame(bmx.fetch_tickers())
-    bmx_futs_last = pd.DataFrame((bmx_tickers[bmx_futs].loc['bid']+bmx_tickers[bmx_futs].loc['ask'])/2, columns = ['mid'])
-    bmx_idx_last = pd.DataFrame(bmx_tickers[bmx_idx].loc['last']).rename(columns={'last':'mid'})
-    bmx_mid = pd.concat([bmx_futs_last, bmx_idx_last])
-
-    dbt_btc = dbapi.get_summary_by_currency('BTC', 'future')
-    dbt_eth = dbapi.get_summary_by_currency('ETH', 'future')
-    dbt_mid = pd.concat([dbt_btc, dbt_eth])[['instrument_name', 'ask_price', 'bid_price', 'estimated_delivery_price']].set_index('instrument_name')
-    dbt_mid['mid'] = (dbt_mid['ask_price'] + dbt_mid['ask_price'])/2
-    dbt_mid.loc['.BTC',:] = dbt_mid.loc['BTC-PERPETUAL', 'estimated_delivery_price']
-    dbt_mid.loc['.ETH',:] = dbt_mid.loc['ETH-PERPETUAL', 'estimated_delivery_price']
-
-    last = pd.DataFrame(pd.concat([bmx_mid, pd.DataFrame(dbt_mid['mid'])]))
-    history[dt.now()] = last
-    dump_history = history.to_json(date_format = 'iso', orient = 'split')
-
-    return dump_history
+def update_hidden_div(n_intervals,data):
+    data = [pd.DataFrame(i) for i in json.loads(data)]
+    ticks = get_data()
+    data = [data[i].append(ticks.iloc[i]) for i in range(len(ticks))]
+    return json.dumps([i.to_dict() for i in data])
 
 
-# Get Tables
 @app.callback(
     [Output('d1-BTCUSD_table', 'data'), Output('d1-ETHUSD_table', 'data'), Output('d1-ETHBTC_table', 'data'), Output('d1-ALTBTC_table', 'data'),
      Output('d1-BTCUSD-last-timestamp', 'children'), Output('d1-ETHUSD-last-timestamp', 'children'), Output('d1-ETHBTC-last-timestamp', 'children'), Output('d1-ALTBTC-last-timestamp', 'children'),
@@ -151,145 +171,90 @@ def process_data(n_intervals, history):
     [Input('d1-refresh_rate', 'n_intervals')],
     [State('d1-hidden_storage','children'), State('d1-BTCUSD-new-timestamp', 'children'), State('d1-ETHUSD-new-timestamp', 'children'), State('d1-ETHBTC-new-timestamp', 'children'), State('d1-ALTBTC-new-timestamp', 'children')]
 )
-def show_table(n_intervals, history, BTCUSD_last_timestamp, ETHUSD_last_timestamp, ETHBTC_last_timestamp, ALTBTC_last_timestamp):
-
-    history = pd.read_json(history, orient = 'split')
-    data = []
+def update_table(n_intervals, data, BTCUSD_last_timestamp, ETHUSD_last_timestamp, ETHBTC_last_timestamp, ALTBTC_last_timestamp):
+    data = [pd.DataFrame(i) for i in json.loads(data)]
+    tab_data = []
     new_timestamps = []
     last_timestamps = [BTCUSD_last_timestamp, ETHUSD_last_timestamp, ETHBTC_last_timestamp, ALTBTC_last_timestamp]
-    alt_data = pd.DataFrame([])
-    
-    for pair in ['BTCUSD', 'ETHUSD', 'ETHBTC', 'BCHBTC', 'LTCBTC', 'XRPBTC', 'TRXBTC', 'EOSBTC', 'ADABTC']:
 
-        table = pd.DataFrame(history[history['pair'] == pair].iloc[:,[1,2,len(history.columns)-1]])
-        table.sort_index(inplace = True)
-        exp = table['exp']
-        last = table.filter(like='.', axis=0).iloc[:,1:]
-        table['Prem.'] = table.apply(lambda row: (row[-1]-last[last['exchange']=='bitmex'].iloc[0,1]) if row[1] == 'bitmex' else row[-1]-last[last['exchange']=='deribit'].iloc[0,1], axis = 1)
-        table['Prem.'] = table['Prem.'].apply(lambda x: None if x==0 else x)
-        table['% Prem.'] = table.apply(lambda row: (row['Prem.']/last[last['exchange']=='bitmex'].iloc[0,1]) if row[1] == 'bitmex' else (row['Prem.']/last[last['exchange']=='bitmex'].iloc[0,1]), axis = 1)
-        table['An. Prem.'] = table.loc[:,'% Prem.'] * (8760/exp)
-        table['F. Cycles'] = table['exp'].apply(lambda x: x/8 if x!=0 else None)
-        table['ex'] = table['exchange']
-        table.sort_values(by=['exchange', 'exp'], inplace = True, ascending = [True,True])
-        table = table.iloc[:,2:]
-        if pair in ['BTCUSD', 'ETHUSD', 'ETHBTC']:
-            table = table.reset_index()
-            table.columns = ['instr', 'mid', 'prem', 'pprem', 'anprem', 'fcycles', 'exchange']
-            data.append(table.to_dict('rows'))
-            new_timestamps.append(dt.now().strftime('%X'))
-        else:
-            table = pd.DataFrame(table)
-            alt_data = pd.concat([alt_data, table])
-    alt_data = alt_data.reset_index()
-    alt_data.columns = ['instr', 'mid', 'prem', 'pprem', 'anprem', 'fcycles', 'exchange']
-    data.append(alt_data.to_dict('rows'))
-    new_timestamps.append(dt.now().strftime('%X'))
+    for pair in sym_ref:
+        pair_data = pd.DataFrame([data[i][['symbol','mid','prem','pprem','anprem']].iloc[-1] for i in range(len(data)) if data[i]['unsym'].iloc[-1] in sym_ref[pair]])
+        pair_data['symbol'] = pair_data['symbol'].str.split('_').str[0]
+        pair_data['fcycles'] = pair_data['pprem']/pair_data['anprem'] * 8760/8
+        pair_data.replace(0, np.nan, inplace = True)
+        tab_data.append(pair_data.to_dict('rows'))
+        new_timestamps.append(dt.datetime.now().strftime('%X'))
 
-    return data + last_timestamps + new_timestamps
+    return tab_data[0],tab_data[1],tab_data[2],tab_data[3],last_timestamps[0],last_timestamps[1],last_timestamps[2],last_timestamps[3],new_timestamps[0],new_timestamps[1],new_timestamps[2],new_timestamps[3]
 
 
 # BTCUSD
 @app.callback(
-    [Output('d1-BTCUSD_last', 'figure'), Output('d1-BTCUSD_prem', 'figure') ],
-    [Input('d1-BTCUSD_table', 'active_cell'), Input('d1-BTCUSD_table', 'data'), Input('d1-refresh_rate', 'n_intervals'), ],
+    [Output('d1-BTCUSD_last', 'figure'), Output('d1-BTCUSD_prem', 'figure'),
+     Output('d1-ETHUSD_last', 'figure'), Output('d1-ETHUSD_prem', 'figure'),
+     Output('d1-ETHBTC_last', 'figure'), Output('d1-ETHBTC_prem', 'figure'),
+     Output('d1-ALTBTC_last', 'figure'), Output('d1-ALTBTC_prem', 'figure') ],
+    [Input('d1-BTCUSD_table', 'active_cell'), Input('d1-ETHUSD_table', 'active_cell'), Input('d1-ETHBTC_table', 'active_cell'), Input('d1-ALTBTC_table', 'active_cell'),
+     Input('d1-BTCUSD_table', 'data'), Input('d1-refresh_rate', 'n_intervals'), ],
     [State('d1-hidden_storage','children')],
 )
-def get_btcusd(cell, tab_data, n_intervals, history):
-    history = pd.read_json(history, orient = 'split')
-    data = history[history['pair']=='BTCUSD']
-    chart = get_charts(data, cell, 'BTCUSD', tab_data)
-    return chart
+def get_btcusd(btcusd_cell, ethusd_cell, ethbtc_cell, altbtc_cell, tab_data, n_intervals, data):
+    data = [pd.DataFrame(i) for i in json.loads(data)]
+    time = data[0].index
+    title = {'prem': 'Premium', 'pprem': 'Percentage Premium', 'anprem': 'Anualized Premium'}
+    chart_data, instruments, ins, ex = [], [], [], []
+    
+    btcusd_cell = [0,'prem'] if btcusd_cell==None else ([btcusd_cell['row'],'prem'] if btcusd_cell['column'] in (0,1,2,5) else [btcusd_cell['row'],btcusd_cell['column_id']])
+    ethusd_cell = [0,'prem'] if ethusd_cell==None else ([ethusd_cell['row'],'prem'] if ethusd_cell['column'] in (0,1,2,5) else [ethusd_cell['row'],ethusd_cell['column_id']])
+    ethbtc_cell = [0,'prem'] if ethbtc_cell==None else ([ethbtc_cell['row'],'prem'] if ethbtc_cell['column'] in (0,1,2,5) else [ethbtc_cell['row'],ethbtc_cell['column_id']])
+    altbtc_cell = [0,'prem'] if altbtc_cell==None else ([altbtc_cell['row'],'prem'] if altbtc_cell['column'] in (0,1,2,5) else [altbtc_cell['row'],altbtc_cell['column_id']])
 
+    for pair in sym_ref:
+        pair_data = [data[i] for i in range(len(data)) if data[i]['unsym'].iloc[-1] in sym_ref[pair]]
+        pair_instruments = [pair_data[i]['symbol'][0] for i in range(len(pair_data))]
+        pair_ins, pair_ex = [i.split('_')[0] for i in pair_instruments],[i.split('_')[1] for i in pair_instruments]
+        instruments.append(pair_instruments)
+        ins.append(pair_ins)
+        ex.append(pair_ex)
+        chart_data.append(pair_data)
 
-# ETHUSD
-@app.callback(
-    [Output('d1-ETHUSD_last', 'figure'), Output('d1-ETHUSD_prem', 'figure'),],
-    [Input('d1-ETHUSD_table', 'active_cell'), Input('d1-ETHUSD_table', 'data'), Input('d1-refresh_rate', 'n_intervals'), ],
-    [State('d1-hidden_storage','children'),],
-)
-def get_ethusd(cell, tab_data, n_intervals, history):
-    history = pd.read_json(history, orient = 'split')
-    data = history[history['pair']=='ETHUSD']
-    chart = get_charts(data, cell, 'ETHUSD', tab_data)
-    return chart
+    btcusd_show = [ex[0][btcusd_cell[0]]] if btcusd_cell[0]!=0 else list(set(ex[0]))
+    ethusd_show = [ex[1][ethusd_cell[0]]] if ethusd_cell[0]!=0 else list(set(ex[1]))
+    ethbtc_show = [ex[2][ethbtc_cell[0]]] if ethbtc_cell[0]!=0 else list(set(ex[2]))
+    sym = ins[3][altbtc_cell[0]].strip('.B')[:3] if not ins[3][altbtc_cell[0]][:3] in ('.BB','BCH') else 'BCH'
+    altbtc_show = [i for i in ins[3] if sym in i]
 
+    btcusd_idx = [dict(x = time, y = chart_data[0][i]['mid'], mode = 'lines', name = instruments[0][i].split('_')[0], line = {'width':1}) for i in range(len(chart_data[0])) if instruments[0][i].startswith('.')]
+    ethusd_idx = [dict(x = time, y = chart_data[1][i]['mid'], mode = 'lines', name = instruments[1][i].split('_')[0], line = {'width':1}) for i in range(len(chart_data[1])) if instruments[1][i].startswith('.')]
+    ethbtc_idx = [dict(x = time, y = chart_data[2][i]['mid'], mode = 'lines', name = instruments[2][i].split('_')[0], line = {'width':1}) for i in range(len(chart_data[2])) if instruments[2][i].startswith('.')]
+    altbtc_idx = [dict(x = time, y = chart_data[3][i]['mid'], mode = 'lines', name = instruments[3][i].split('_')[0], line = {'width':1}) for i in range(len(chart_data[3])) if instruments[3][i].startswith('.') and any(instruments[3][i].split('_')[j] in altbtc_show for j in range(2))]
 
-# ETHXBT
-@app.callback(
-    [Output('d1-ETHBTC_last', 'figure'), Output('d1-ETHBTC_prem', 'figure'),],
-    [Input('d1-ETHBTC_table', 'active_cell'), Input('d1-ETHBTC_table', 'data'), Input('d1-refresh_rate', 'n_intervals'), ],
-    [State('d1-hidden_storage','children'),],
-)
-def get_ethxbt(cell, tab_data, n_intervals, history):
-    history = pd.read_json(history, orient = 'split')
-    data = history[history['pair']=='ETHBTC']
-    chart = get_charts(data, cell, 'ETHBTC', tab_data)
-    return chart
+    btcusd_mid = [dict(x = time, y = chart_data[0][i][btcusd_cell[1]] if [btcusd_cell[1]]==['prem'] else chart_data[0][i][btcusd_cell[1]]*100, mode = 'lines', name = instruments[0][i].split('_')[0], line = {'width':1}) for i in range(len(chart_data[0])) if not instruments[0][i].startswith('.') and not (chart_data[0][i][btcusd_cell[1]] == 0).all() and any(instruments[0][i].split('_')[j] in btcusd_show for j in range(2))] #and not chart_data[0][i][btcusd_cell[1]].isnull().any() 
+    ethusd_mid = [dict(x = time, y = chart_data[1][i][ethusd_cell[1]] if [btcusd_cell[1]]==['prem'] else chart_data[1][i][ethusd_cell[1]]*100, mode = 'lines', name = instruments[1][i].split('_')[0], line = {'width':1}) for i in range(len(chart_data[1])) if not instruments[1][i].startswith('.') and not (chart_data[1][i][ethusd_cell[1]] == 0).all() and any(instruments[1][i].split('_')[j] in ethusd_show for j in range(2))] #and not chart_data[1][i][ethusd_cell[1]].isnull().any()
+    ethbtc_mid = [dict(x = time, y = chart_data[2][i][ethbtc_cell[1]] if [btcusd_cell[1]]==['prem'] else chart_data[2][i][ethbtc_cell[1]]*100, mode = 'lines', name = instruments[2][i].split('_')[0], line = {'width':1}) for i in range(len(chart_data[2])) if not instruments[2][i].startswith('.') and not (chart_data[2][i][ethbtc_cell[1]] == 0).all() and any(instruments[2][i].split('_')[j] in ethbtc_show for j in range(2))] #and not chart_data[2][i][ethbtc_cell[1]].isnull().any() 
+    altbtc_mid = [dict(x = time, y = chart_data[3][i][altbtc_cell[1]] if [btcusd_cell[1]]==['prem'] else chart_data[3][i][altbtc_cell[1]]*100, mode = 'lines', name = instruments[3][i].split('_')[0], line = {'width':1}) for i in range(len(chart_data[3])) if not instruments[3][i].startswith('.') and not (chart_data[3][i][altbtc_cell[1]] == 0).all() and any(instruments[3][i].split('_')[j] in altbtc_show for j in range(2))] #and not chart_data[3][i][altbtc_cell[1]].isnull().any()
 
+    return ({'data': btcusd_idx,
+             'layout': { 'margin': {'t': 30, 'b': 50, 'l': 70, 'r': 30, }, 'height': 300, 'width': 600, 'title': 'Last Price', 'legend': dict(orientation='h'), 'showlegend': True, 'xaxis': dict(showline = True), 'yaxis': dict(showline = True) ,'uirevision':str(btcusd_cell)} }, #'font': {"color": "#ffffff"}, 'paper_bgcolor':"#2c2c2c", 'plot_bgcolor':"#2c2c2c"
+            {'data': btcusd_mid,
+             'layout': { 'margin': {'t': 30, 'b': 50, 'l': 50, 'r': 30, }, 'height': 300, 'width': 600, 'title': title[btcusd_cell[1]], 'legend': dict(orientation='h'), 'showlegend': True, 'xaxis': dict(showline = True), 'yaxis': dict(showline = True) ,'uirevision':str(btcusd_cell)} },
+            {'data': ethusd_idx,
+             'layout': { 'margin': {'t': 30, 'b': 50, 'l': 70, 'r': 30, }, 'height': 300, 'width': 600, 'title': 'Last Price', 'legend': dict(orientation='h'), 'showlegend': True, 'xaxis': dict(showline = True), 'yaxis': dict(showline = True) ,'uirevision':str(ethusd_cell)} },
+            {'data': ethusd_mid,
+             'layout': { 'margin': {'t': 30, 'b': 50, 'l': 50, 'r': 30, }, 'height': 300, 'width': 600, 'title': title[ethusd_cell[1]], 'legend': dict(orientation='h'), 'showlegend': True, 'xaxis': dict(showline = True), 'yaxis': dict(showline = True) ,'uirevision':str(ethusd_cell)} },
+            {'data': ethbtc_idx,
+             'layout': { 'margin': {'t': 30, 'b': 50, 'l': 70, 'r': 30, }, 'height': 300, 'width': 600, 'title': 'Last Price', 'legend': dict(orientation='h'), 'showlegend': True, 'xaxis': dict(showline = True), 'yaxis': dict(showline = True) ,'uirevision':str(ethbtc_cell)} },
+            {'data': ethbtc_mid,
+             'layout': { 'margin': {'t': 30, 'b': 50, 'l': 50, 'r': 30, }, 'height': 300, 'width': 600, 'title': title[ethbtc_cell[1]], 'legend': dict(orientation='h'), 'showlegend': True, 'xaxis': dict(showline = True), 'yaxis': dict(showline = True) ,'uirevision':str(ethbtc_cell)} },
+            {'data': altbtc_idx,
+             'layout': { 'margin': {'t': 30, 'b': 50, 'l': 70, 'r': 30, }, 'height': 300, 'width': 600, 'title': 'Last Price', 'legend': dict(orientation='h'), 'showlegend': True, 'xaxis': dict(showline = True), 'yaxis': dict(showline = True) ,'uirevision':str(altbtc_cell)} },
+            {'data': altbtc_mid,
+             'layout': { 'margin': {'t': 30, 'b': 50, 'l': 50, 'r': 30, }, 'height': 300, 'width': 600, 'title': title[altbtc_cell[1]], 'legend': dict(orientation='h'), 'showlegend': True, 'xaxis': dict(showline = True), 'yaxis': dict(showline = True) ,'uirevision':str(altbtc_cell)} },)
 
-# ALTXXX
-@app.callback(
-    [Output('d1-ALTBTC_last', 'figure'), Output('d1-ALTBTC_prem', 'figure'),],
-    [Input('d1-ALTBTC_table', 'active_cell'), Input('d1-ALTBTC_table', 'data'), Input('d1-refresh_rate', 'n_intervals'), ],
-    [State('d1-hidden_storage','children'),],
-)
-def get_altxxx(cell, tab_data, n_intervals, history):
-    history = pd.read_json(history, orient = 'split')
-    cell_row = 0 if cell==None else cell['row']
-    pairs = ['BCHBTC', 'BCHBTC', 'LTCBTC', 'LTCBTC', 'XRPBTC', 'XRPBTC', 'TRXBTC', 'TRXBTC', 'EOSBTC', 'EOSBTC', 'ADABTC', 'ADABTC']
-    data = history[history['pair']==pairs[cell_row]]
-    chart = get_charts(data, cell, pairs[cell_row], tab_data)
-    return chart
-
-
-def get_charts(data, cell, pair, tab_data = None):
-    cell_col = 0 if cell==None else cell['column']
-    cell_row = None if cell==None else cell['row']
-    tab_data = pd.DataFrame(tab_data) if tab_data != None else tab_data
-    row_data = ['bitmex', 'deribit'] if cell_row == None else [tab_data['exchange'][cell_row]]
-    row_data = ['bitmex', 'deribit'] if cell_row == 0 else row_data
-    title = ('Bitmex - '+pair+' - Premium' if row_data==['bitmex'] else ( 'Deribit - '+pair+' - Premium' if row_data==['deribit'] else 'Bitmex, Deribit - '+pair+' - Premium')) if pair == 'BTCUSD' or pair == 'ETHUSD' else pair+' - Premium'
-    prem_traces = []
-    last_traces = []
-
-    groups = data.groupby('exchange')
-
-    for name, group in groups:
-
-        data = group.T
-        exp = data.loc['exp',:]
-        exp = exp.apply(lambda x: None if x==0 else x)
-        data = data.iloc[3:,:].tail(500) if len(data.index[3:]) > 100 else data.iloc[3:,:]
-        time = list(data.index)
-        last = list(data.loc[:, data.columns[0]])
-        last_traces.append( go.Scatter( x = time, y = last, name = data.columns[0], line = dict(width = 1), mode = 'lines', ) )
-
-        prem_ins = [i for i in data.columns if ('.' not in i and '/' not in i and 'PERPETUAL' not in i) ] if cell_col==4 else [i for i in data.columns if '.' not in i ]
-
-        if name in row_data:
-
-            for i in prem_ins:
-                if cell_col==4:
-                    prem = list(((data[i] - data.iloc[:,0]) / data.iloc[:,0]) * 100 * (8760/exp[i]))
-                    title = ('Bitmex - '+pair+' - Annualised % Premium' if row_data==['bitmex'] else ( 'Deribit - '+pair+' - Annualised % Premium' if row_data==['deribit'] else 'Bitmex, Deribit - '+pair+' - Annualised % Premium')) if pair == 'BTCUSD' or pair == 'ETHUSD' else pair+' - Annualised % Premium'
-                    prem_traces.append( go.Scatter( x = time, y = prem, name = i, line = dict(width = 1), mode = 'lines',) )
-                elif cell_col== 3:
-                    prem = list(((data[i] - data.iloc[:,0]) / data.iloc[:,0]) * 100)
-                    title = ('Bitmex - '+pair+' - % Premium' if row_data==['bitmex'] else ( 'Deribit - '+pair+' - % Premium' if row_data==['deribit'] else 'Bitmex, Deribit - '+pair+' - % Premium')) if pair == 'BTCUSD' or pair == 'ETHUSD' else pair+' - % Premium'
-                    prem_traces.append( go.Scatter( x = time, y = prem, name = i, line = dict(width = 1), mode = 'lines',) )
-                else:
-                    prem = list(data[i] - data.iloc[:,0])
-                    prem_traces.append( go.Scatter( x = time, y = prem, name = i, line = dict(width = 1), mode = 'lines',) )
-
-    return ({'data': last_traces,
-             'layout': { 'margin': {'t': 30, 'b': 50, 'l': 70, 'r': 30, }, 'height': 300, 'width': 600, 'title': pair+' - Last Price', 'legend': dict(orientation='h'), 'xaxis': dict(showline = True), 'yaxis': dict(showline = True) ,'uirevision':str(cell)} },
-            {'data': prem_traces,
-             'layout': { 'margin': {'t': 30, 'b': 50, 'l': 50, 'r': 30, }, 'height': 300, 'width': 600, 'title': title, 'legend': dict(orientation='h'), 'xaxis': dict(showline = True), 'yaxis': dict(showline = True) ,'uirevision':str(cell)} }, )
 
 
 #----------------------------------------------------------------------------------------------#
-
+# Run
 #----------------------------------------------------------------------------------------------#
-if __name__ == '__main__':
-    app.run_server(debug = True, port = 5060)
+# if __name__ == '__main__':
+#     app.run_server(debug = True, port = 8060)

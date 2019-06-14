@@ -3,7 +3,7 @@ import dash_html_components as html
 from dash.dependencies import Input, Output
 
 from app import app
-from apps import spot, futures  ,d1_board ,spreads
+from apps import spot, futures  ,d1_board ,spreads, d1_history
 
 style={'color':'#808285','padding':'10px 15px','font-size':'20px',
                                 'text-align':'center','display':'inline-block','text-decoration':'None','marginRight':'7px'}
@@ -11,8 +11,10 @@ style={'color':'#808285','padding':'10px 15px','font-size':'20px',
 nav_menu = html.Div(style={'margin-bottom':'1px'},children=[
                     html.A('Spot', href='/apps/spot',style=style,id='spot-link'),
                     html.A('Futures', href='/apps/futures',style=style,id='fut-link'),
+                    html.A('Spreads', href='/apps/spreads',style=style,id='spr-link'),
                     html.A('Delta One', href='/apps/d1_board',style=style,id='d1-link'),
-                    html.A('Spreads', href='/apps/spreads',style=style,id='spr-link')
+                    html.A('D1 History', href='/apps/d1_history',style=style,id='d1h-link'),
+
                     ],
                     )
 app.title = 'Home'
@@ -35,12 +37,15 @@ def display_page(pathname):
     elif pathname == '/apps/futures':
         app.title = futures.title
         return futures.layout
-    elif pathname == '/apps/d1_board':
-        app.title = d1_board.title
-        return d1_board.layout
     elif pathname == '/apps/spreads':
         app.title = spreads.title
         return spreads.layout
+    elif pathname == '/apps/d1_board':
+        app.title = d1_board.title
+        return d1_board.layout
+    elif pathname == '/apps/d1_history':
+        app.title = d1_history.title
+        return d1_history.layout
     else:
         return html.Div(html.Img(src='/assets/diginex_chain_logo.svg',
                         style={'opacity':0.4,'display':'block','margin-left':'auto','margin-right':'auto',
